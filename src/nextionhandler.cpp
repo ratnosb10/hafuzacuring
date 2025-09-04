@@ -48,6 +48,7 @@ void nextionReceiveHandler()
     }
     if (cmd == "saveadv")
     {
+       adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjpress = getValue(incomingString, ' ', 3).toDouble();
       cKp = getValue(incomingString, ' ', 4).toDouble()/10;
