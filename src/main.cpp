@@ -101,7 +101,7 @@ void loop()
     // Serial.println(arus);
     float suhuraw = maxthermo.readRawTemperature();
     float suhukalman = maxthermo.applyKalman(suhuraw);
-    float suhuavg = maxthermo.applyMovingAverage(suhukalman);
+    float suhuavg = maxthermo.applyMovingAverage(suhukalman)+adjustmentSuhu;
 
     updatedisplay(suhuavg); // <- update tampilan via Serial
                             // temperature =sensor.getFilteredTemperature();
