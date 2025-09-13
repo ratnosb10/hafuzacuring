@@ -33,6 +33,7 @@ void setup()
 void loop()
 {
   nextionReceiveHandler();
+  hourmetertask();
   if (currentpage == CONFIG || currentpage == ADVANCE)
   {
     Button btn = getButtonDebounced(50);
@@ -140,7 +141,7 @@ void loop()
       {
         LastState = STANDBY;
         currentState = PREHEATING;
-        setupPID(HEATER_PIN, cKp/3, cKi/3, cKd, cmulaipid);
+        setupPID(HEATER_PIN, cKp / 3, cKi / 3, cKd, cmulaipid);
       }
       break;
 
@@ -160,7 +161,7 @@ void loop()
       {
         LastState = STANDBY2;
         currentState = PRERUNNING;
-          setupPID(HEATER_PIN, cKp, cKi, cKd, cmulaipid);
+        setupPID(HEATER_PIN, cKp, cKi, cKd, cmulaipid);
         reset_pid();
       }
       if (stoppress)
@@ -182,13 +183,18 @@ void loop()
       }
       break;
     case RUNNING:
-    Heaterpin = runPID(suhuavg, csetpoint);
+      Heaterpin = runPID(suhuavg, csetpoint);
       if (stoppress)
       {
         LastState = RUNNING;
         currentState = STOPPED;
       }
-
+      if (timesup)
+      {
+        LastState = RUNNING;
+        timesup = false;
+        currentState = FINISHED;
+      }
       break;
     case FINISHED:
       if (stoppress)
@@ -234,6 +240,23 @@ void loop()
   delay(1);
 }
 
+void hourmetertask()
+{
+  unsigned long currentMillis = millis();
+  if (currentMillis - milishourmeter >= 360000)
+  {
+    milishourmeter = currentMillis;
+    hourmeter++;
+    EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
+    char buffer[10];
+    sprintf(buffer, "%06ld", hourmeter);
+    for (int i = 0; i < 6; i++)
+    {
+      dspSerial.printf("hourmeter.t%d.txt=\"%c\"", i + 10, buffer[i]);
+      sendNextionEnd();
+    }
+  }
+}
 void sendconfigdisplay()
 {
   int jamSet = csetTimer / 3600;
@@ -246,6 +269,12 @@ void sendconfigdisplay()
   dspSerial.printf("main.t2.txt=\"%02d:%02d\"", jamSet, menitSet);
   sendNextionEnd();
   dspSerial.printf("main.t3.txt=\"%d\"", (int)setpressure);
+  sendNextionEnd();
+  unsigned long hours = timerrun / 3600;
+  unsigned long minutes = (timerrun % 3600) / 60;
+  unsigned long seconds = timerrun % 60;
+
+  dspSerial.printf("%02lu:%02lu:%02lu", hours, minutes, seconds);
   sendNextionEnd();
 
   dspSerial.printf("config.n1.val=%d", (int)csetpoint);
@@ -264,17 +293,17 @@ void sendconfigdisplay()
   dspSerial.printf("config.n7.val=%d", (int)timereminder);
   sendNextionEnd();
 
-  dspSerial.printf("advance.n1.val=%1.0f", adjustmentSuhu*10);
+  dspSerial.printf("advance.n1.val=%1.0f", adjustmentSuhu * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.n2.val=%1.0f", adjpress*10);
+  dspSerial.printf("advance.n2.val=%1.0f", adjpress * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x0.val=%1.0f", cKp*10);
+  dspSerial.printf("advance.x0.val=%1.0f", cKp * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x1.val=%1.0f", cKi*10);
+  dspSerial.printf("advance.x1.val=%1.0f", cKi * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x2.val=%1.0f", cKd*10);
+  dspSerial.printf("advance.x2.val=%1.0f", cKd * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x3.val=%1.0f", cmulaipid*10);
+  dspSerial.printf("advance.x3.val=%1.0f", cmulaipid * 10);
   sendNextionEnd();
 }
 
@@ -413,7 +442,8 @@ void saveConfig()
   EEPROM_writeAnything(ADDR_REMINDER, timereminder);
   EEPROM_writeAnything(ADDR_ADJ_PRESS, adjpress);
   EEPROM_writeAnything(ADDR_MULAI_PID, cmulaipid);
-
+  EEPROM_writeAnything(ADDR_TIMERRUN, timerrun);
+  EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
   Serial.println("savecomplit");
 }
 
@@ -432,6 +462,9 @@ void loadConfig()
   EEPROM_readAnything(ADDR_REMINDER, timereminder);
   EEPROM_readAnything(ADDR_ADJ_PRESS, adjpress);
   EEPROM_readAnything(ADDR_MULAI_PID, cmulaipid);
+
+  EEPROM_readAnything(ADDR_TIMERRUN, timerrun);
+  EEPROM_readAnything(ADDR_HOURMETER, hourmeter);
 
   // Cek NaN atau nilai tidak wajar
   if (isnan(csetpoint) || csetpoint < 24.0 || csetpoint > 300.0)
@@ -466,6 +499,12 @@ void loadConfig()
   if (isnan(cmulaipid) || cmulaipid < 0.00 || cmulaipid > 50.0)
     cmulaipid = 15;
 
+  if (isnan(hourmeter) || hourmeter < 0 || hourmeter > 999999)
+    hourmeter = 0;
+
+  if (isnan(timerrun) || timerrun < 0 || timerrun > 999999)
+    timerrun = 0;
+
   Serial.println(csetpoint);
   Serial.println(suhupreheat);
   Serial.println(setSuhuAlarm);
@@ -479,9 +518,6 @@ void loadConfig()
   Serial.println(timereminder);
   Serial.println(adjpress);
   Serial.println(cmulaipid);
-
-
-
 }
 
 float readWithRetry(std::function<float()> reader)

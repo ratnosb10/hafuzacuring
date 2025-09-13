@@ -25,8 +25,8 @@
 #define ADDR_REMINDER 80
 #define ADDR_MULAI_PID 88
 #define ADDR_ADJ_PRESS 96
-
-
+#define ADDR_TIMERRUN 108
+#define ADDR_HOURMETER 116
 
 I2C_eeprom eeprom(DEVICEADDRESS, 2048);
 template<class T> int EEPROM_writeAnything(int ee, const T& value) ;
@@ -36,7 +36,7 @@ double csetpoint, setSuhuAlarm, suhupreheat;
 unsigned long  csetTimer;
 double cKp,cKi,cKd;
 double dran,adjustmentSuhu,setpressure,timereminder,adjpress,cmulaipid;
-
+unsigned long timerrun,hourmeter,milishourmeter;
 
 // === Pin Config ===
 const int START_PIN = 16;
@@ -81,8 +81,8 @@ State LastState = STANDBY;
 float arus = 0, pressure = 0;
 
 // === Tombol (pakai Bounce2) ===
-
-bool Heaterpin;
+bool timesup = false;
+bool Heaterpin = false;
 unsigned long lastDisplayUpdate = 0;
 unsigned long pbmilis;
 void updatedisplay(float temperature);
@@ -94,7 +94,7 @@ Button getButtonDebounced(unsigned long t);
 void sendconfigdisplay();
 
 float readWithRetry(std::function<float()> reader) ;
-
+void hourmetertask();
 
 
 MAX31856Sensor maxthermo = MAX31856Sensor(8, 11, 9, 7);

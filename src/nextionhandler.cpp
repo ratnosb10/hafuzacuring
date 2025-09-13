@@ -5,15 +5,16 @@
 #define ADVANCE 3
 #define TEST 4
 
-
 extern double csetpoint, setSuhuAlarm, suhupreheat;
 extern unsigned long csetTimer;
 extern double cKp, cKi, cKd;
 extern double dran, adjustmentSuhu, setpressure, timereminder, adjpress, cmulaipid;
 extern byte currentpage;
+extern unsigned long timerrun;
 extern void saveConfig();
 extern void loadConfig();
 extern void sendconfigdisplay();
+extern bool timesup;
 String cmd;
 void nextionReceiveHandler()
 {
@@ -22,11 +23,10 @@ void nextionReceiveHandler()
     String incomingString = dspSerial.readStringUntil('$');
     cmd = getValue(incomingString, ' ', 1);
     if (cmd == "cancel")
-    {  
-     
+    {
       sendconfigdisplay();
       currentpage = MAIN;
-       dspSerial.print("page main");
+      dspSerial.print("page main");
       sendNextionEnd();
     }
     if (cmd == "save")
@@ -48,13 +48,13 @@ void nextionReceiveHandler()
     }
     if (cmd == "saveadv")
     {
-       adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
+      adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjpress = getValue(incomingString, ' ', 3).toDouble();
-      cKp = getValue(incomingString, ' ', 4).toDouble()/10;
-      cKi = getValue(incomingString, ' ', 5).toDouble()/10;
-      cKd = getValue(incomingString, ' ', 6).toDouble()/10;
-      cmulaipid = getValue(incomingString, ' ', 7).toDouble()/10;
+      cKp = getValue(incomingString, ' ', 4).toDouble() / 10;
+      cKi = getValue(incomingString, ' ', 5).toDouble() / 10;
+      cKd = getValue(incomingString, ' ', 6).toDouble() / 10;
+      cmulaipid = getValue(incomingString, ' ', 7).toDouble() / 10;
       saveConfig();
       dspSerial.print("page main");
       sendNextionEnd();
@@ -62,6 +62,22 @@ void nextionReceiveHandler()
       sendconfigdisplay();
       currentpage = MAIN;
     }
+    if (cmd == "timerrun")
+    {
+      String strtimer;
+      strtimer = getValue(incomingString, ' ', 2);
+      int j, m, d;
+      j = getValue(strtimer, ':', 0).toInt();
+      m = getValue(strtimer, ':', 1).toInt();
+      d = getValue(strtimer, ':', 2).toInt();
+      timerrun = (j * 3600UL) + (m * 60UL) + d;
+      saveConfig();
+    }
+   if (cmd == "timerrun"){
+    timesup = true;
+   }
+  
+  
   }
 }
 
