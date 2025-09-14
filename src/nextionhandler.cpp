@@ -73,7 +73,7 @@ void nextionReceiveHandler()
       timerrun = (j * 3600UL) + (m * 60UL) + d;
       saveConfig();
     }
-   if (cmd == "timerrun"){
+   if (cmd == "finished"){
     timesup = true;
    }
   

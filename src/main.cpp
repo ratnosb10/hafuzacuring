@@ -101,7 +101,7 @@ void loop()
     // Serial.println(arus);
     float suhuraw = maxthermo.readRawTemperature();
     float suhukalman = maxthermo.applyKalman(suhuraw);
-    float suhuavg = maxthermo.applyMovingAverage(suhukalman)+adjustmentSuhu;
+    float suhuavg = maxthermo.applyMovingAverage(suhukalman) + adjustmentSuhu;
 
     updatedisplay(suhuavg); // <- update tampilan via Serial
                             // temperature =sensor.getFilteredTemperature();
@@ -180,6 +180,8 @@ void loop()
       if (suhuavg >= csetpoint)
       {
         currentState = RUNNING;
+        dspSerial.print("btn.txt=\"start\"");
+        sendNextionEnd();
       }
       break;
     case RUNNING:
@@ -188,6 +190,8 @@ void loop()
       {
         LastState = RUNNING;
         currentState = STOPPED;
+        dspSerial.print("btn.txt=\"stop\"");
+        sendNextionEnd();
       }
       if (timesup)
       {
@@ -222,6 +226,8 @@ void loop()
       {
         LastState = STOPPED;
         currentState = STANDBY;
+        dspSerial.print("btn.txt=\"reset\"");  
+        sendNextionEnd();
       }
       break;
     }
@@ -274,7 +280,19 @@ void sendconfigdisplay()
   unsigned long minutes = (timerrun % 3600) / 60;
   unsigned long seconds = timerrun % 60;
 
-  dspSerial.printf("%02lu:%02lu:%02lu", hours, minutes, seconds);
+  char buffer[10];
+  sprintf(buffer, "%06ld", hourmeter);
+  for (int i = 0; i < 6; i++)
+  {
+    dspSerial.printf("hourmeter.t%d.txt=\"%c\"", i + 10, buffer[i]);
+    sendNextionEnd();
+  }
+
+  dspSerial.printf("main.tjam.val=%d", hours);
+  sendNextionEnd();
+  dspSerial.printf("main.tmenit.val=%d", minutes);
+  sendNextionEnd();
+  dspSerial.printf("main.tdetik.val=%d", seconds);
   sendNextionEnd();
 
   dspSerial.printf("config.n1.val=%d", (int)csetpoint);
