@@ -28,7 +28,7 @@
 #define ADDR_TIMERRUN 108
 #define ADDR_HOURMETER 116
 
-I2C_eeprom eeprom(DEVICEADDRESS, 2048);
+I2C_eeprom eeprom(DEVICEADDRESS, I2C_DEVICESIZE_24LC64);
 template<class T> int EEPROM_writeAnything(int ee, const T& value) ;
 template<class T> int EEPROM_readAnything(int ee, T& value) ;
 
@@ -48,6 +48,10 @@ const int STOP_PIN = 17;
 const int HEATER_PIN = 40;
 const int BUZZER_PIN = 37;
 const int LED_PIN = 34;
+const int CEKTC_PIN = 38;
+const int EMER_PIN = 21;
+const int BIGRELAY_PIN = 39; 
+
 enum Button
 {
   BTN_NONE,
@@ -100,7 +104,7 @@ Button getButtonDebounced(unsigned long t);
 void sendconfigdisplay();
 void savetimer();
 float readWithRetry(std::function<float()> reader) ;
-
+void updatehourmeter();
 
 
 MAX31856Sensor maxthermo = MAX31856Sensor(8, 11, 9, 7);

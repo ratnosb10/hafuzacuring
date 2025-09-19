@@ -13,28 +13,46 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
-  dspSerial.begin(9600, SERIAL_8N1, 13, 12);
+  dspSerial.begin(9600, SERIAL_8N1, 12, 13);
   Serial0.begin(9600, SERIAL_8N1, 2, 3);
   pinMode(START_PIN, INPUT);
   pinMode(STOP_PIN, INPUT);
   pinMode(HEATER_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
+  pinMode(CEKTC_PIN, OUTPUT);
+  pinMode(EMER_PIN, INPUT);
+  pinMode(BIGRELAY_PIN, OUTPUT);
   digitalWrite(HEATER_PIN, LOW);
   digitalWrite(BUZZER_PIN, LOW);
   digitalWrite(LED_PIN, LOW);
+  digitalWrite(CEKTC_PIN, LOW);
+  
   Wire.begin();
   eeprom.begin();
   analogSetPinAttenuation(1, ADC_11db);
   // analogSetAttenuation(ADC_11db);
   analogReadResolution(6);
-  Serial.println("==============mulai");
+
+  
   maxthermo.begin();
+
+
   currentpage = OPENING;
 }
 
 void loop()
 {
+
+  if (digitalRead(EMER_PIN) == 0){
+    digitalWrite(BIGRELAY_PIN, HIGH);
+    digitalWrite(HEATER_PIN, LOW);
+    digitalWrite(LED_PIN, HIGH); // LED menyala terus
+    digitalWrite(BUZZER_PIN, HIGH); // Buzzer nyala terus
+       dspSerial.printf("t0.txt=\"%s\"", "EMERGENCY STOP!");
+    sendNextionEnd();
+    while(1); // Hentikan semua operasi
+  }
   nextionReceiveHandler();
 
   if (currentpage == CONFIG || currentpage == ADVANCE)
@@ -97,19 +115,20 @@ void loop()
   }
   if (currentpage == MAIN)
   {
+
     float voltage = readWithRetry([&]()
                                   { return pzem.voltage(); });
     arus = readWithRetry([&]()
                          { return pzem.current(); });
+
+    // Serial.print("voltage ");
+    // Serial.print(voltage);
+    // Serial.print("   arus ");
     // Serial.println(arus);
     float suhuraw = maxthermo.readRawTemperature();
     float suhukalman = maxthermo.applyKalman(suhuraw);
     float suhuavg = maxthermo.applyMovingAverage(suhukalman) + adjustmentSuhu;
 
-
-
-
-    
     updatedisplay(suhuavg); // <- update tampilan via Serial
                             // temperature =sensor.getFilteredTemperature();
 
@@ -142,7 +161,6 @@ void loop()
         dspSerial.print("page config");
         sendNextionEnd();
         currentpage = CONFIG;
-        delay(2000);
       }
       else if (startpress)
       {
@@ -243,12 +261,14 @@ void loop()
   {
     dspSerial.print("page opening");
     sendNextionEnd();
-    delay(2000);
+    delay(3000);
     loadConfig();
     sendconfigdisplay();
     dspSerial.print("page main");
     sendNextionEnd();
     currentpage = MAIN;
+    Serial.println("==============siap");
+    updatehourmeter();
   }
   delay(1);
 }
@@ -257,8 +277,22 @@ void savetimer()
 {
   EEPROM_writeAnything(ADDR_TIMERRUN, timerrun);
   EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
+  updatehourmeter();
 }
+void updatehourmeter()
+{
+     unsigned long hm=hourmeter/6;
+ char buffer[11];  // cukup besar, unsigned long max 10 digit + null
+  sprintf(buffer, "%06lu", hm);
 
+  // kirim per karakter
+  for (int i = 0; i<6; i++) {
+    dspSerial.printf("t%d.txt=\"%c\"",i+10, buffer[i]);
+    sendNextionEnd();
+  }
+  
+
+}
 void sendconfigdisplay()
 {
   int jamSet = csetTimer / 3600;
@@ -307,9 +341,9 @@ void sendconfigdisplay()
   dspSerial.printf("config.n7.val=%d", (int)timereminder);
   sendNextionEnd();
 
-  dspSerial.printf("advance.n1.val=%1.0f", adjustmentSuhu * 10);
+  dspSerial.printf("advance.n1.val=%1.0f", adjustmentSuhu );
   sendNextionEnd();
-  dspSerial.printf("advance.n2.val=%1.0f", adjpress * 10);
+  dspSerial.printf("advance.n2.val=%1.0f", adjpress );
   sendNextionEnd();
   dspSerial.printf("advance.x0.val=%1.0f", cKp * 10);
   sendNextionEnd();
@@ -320,14 +354,15 @@ void sendconfigdisplay()
   dspSerial.printf("advance.x3.val=%1.0f", cmulaipid * 10);
   sendNextionEnd();
 }
-
 void updatedisplay(float temperature)
 {
+  unsigned long now = millis();
   float suhudsp = temperature;
-  if (millis() - lastDisplayUpdate >= 500)
+  if (now - lastDisplayUpdate >= 500)
   {
-    // temperature += 0.5;
-    lastDisplayUpdate = millis();
+    // Serial.println("==============update");
+    //  temperature += 0.5;
+    lastDisplayUpdate = now;
 
     if (suhudsp >= 100.0)
       dspSerial.printf("tsuhu.txt=\"%d\"", (int)suhudsp);
@@ -354,7 +389,7 @@ void updatedisplay(float temperature)
     dspSerial.printf("tpress.txt=\"%.0f\"", pressure);
     sendNextionEnd();
 
-    dspSerial.printf("tstat.txt=\"%s\"", getStatusText());
+    dspSerial.printf("t0.txt=\"%s\"", getStatusText());
     sendNextionEnd();
 
     dspSerial.printf("p0.pic=%d", Heaterpin ? 3 : 2);
@@ -437,6 +472,7 @@ Button getButtonDebounced(unsigned long t)
   {
     stableButton = currentButton;
   }
+ 
   return stableButton;
 }
 
@@ -458,7 +494,6 @@ void saveConfig()
   EEPROM_writeAnything(ADDR_MULAI_PID, cmulaipid);
   EEPROM_writeAnything(ADDR_TIMERRUN, timerrun);
   EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
-
 }
 
 void loadConfig()
@@ -489,8 +524,9 @@ void loadConfig()
 
   if (isnan(suhupreheat) || suhupreheat < 0 || suhupreheat >= csetpoint)
     suhupreheat = 50;
-
-  if (csetTimer < 60 || csetTimer > 86400)
+  if (isnan(timereminder) || timereminder < 0 || timereminder > 120)
+    timereminder = 15;
+  if (isnan(csetTimer) || csetTimer < 60 || csetTimer > 86400)
     csetTimer = 3600;
 
   if (isnan(cKp) || cKp < 0.00 || cKp > 100.0)
@@ -507,9 +543,6 @@ void loadConfig()
   if (isnan(setpressure) || setpressure < 0 || adjustmentSuhu > 50)
     setpressure = 33.0;
 
-  if (timereminder < 0 || csetTimer > 86400)
-    csetTimer = 900;
-
   if (isnan(cmulaipid) || cmulaipid < 0.00 || cmulaipid > 50.0)
     cmulaipid = 15;
 
@@ -519,7 +552,7 @@ void loadConfig()
   if (isnan(timerrun) || timerrun < 0 || timerrun > 999999)
     timerrun = 0;
 
-/*   Serial.println(csetpoint);
+   /* Serial.println(csetpoint);
   Serial.println(suhupreheat);
   Serial.println(setSuhuAlarm);
   Serial.println(csetTimer);
@@ -531,7 +564,11 @@ void loadConfig()
   Serial.println(setpressure);
   Serial.println(timereminder);
   Serial.println(adjpress);
-  Serial.println(cmulaipid); */
+  Serial.println(cmulaipid); 
+  Serial.println(timerrun);
+  Serial.println(hourmeter); */
+
+
 }
 
 float readWithRetry(std::function<float()> reader)
@@ -545,8 +582,7 @@ float readWithRetry(std::function<float()> reader)
       return val; // sukses, kembalikan nilai baru
     }
   }
-  delay(3000);
-  return 0.5; // kalau gagal semua, pakai nilai lama
+  return 0; // kalau gagal semua, pakai nilai lama
 }
 
 template <class T>

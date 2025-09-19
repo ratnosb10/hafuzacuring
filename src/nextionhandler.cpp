@@ -23,13 +23,21 @@ void nextionReceiveHandler()
   {
     String incomingString = dspSerial.readStringUntil('$');
     cmd = getValue(incomingString, ' ', 1);
-    if (cmd == "cancel")
+    if (cmd == "tomain")
     {
       sendconfigdisplay();
       currentpage = MAIN;
       dspSerial.print("page main");
       sendNextionEnd();
     }
+     if (cmd == "toadvance")
+    {
+      sendconfigdisplay();
+      currentpage = ADVANCE;
+      dspSerial.print("page advance");
+      sendNextionEnd();
+    }
+    
     if (cmd == "save")
     {
       csetpoint = getValue(incomingString, ' ', 2).toDouble();
@@ -47,9 +55,8 @@ void nextionReceiveHandler()
       sendconfigdisplay();
       currentpage = MAIN;
     }
-    if (cmd == "saveadv")
+    if (cmd == "saveadvan")
     {
-      adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjpress = getValue(incomingString, ' ', 3).toDouble();
       cKp = getValue(incomingString, ' ', 4).toDouble() / 10;
@@ -57,10 +64,17 @@ void nextionReceiveHandler()
       cKd = getValue(incomingString, ' ', 6).toDouble() / 10;
       cmulaipid = getValue(incomingString, ' ', 7).toDouble() / 10;
       saveConfig();
-      dspSerial.print("page main");
-      sendNextionEnd();
-      loadConfig();
       sendconfigdisplay();
+      
+      /*  Serial.println(adjustmentSuhu);
+       Serial.println(adjpress);
+      Serial.println(cKp);
+  Serial.println(cKi);
+  Serial.println(cKd);
+Serial.println(cmulaipid); */
+
+            dspSerial.print("page main");
+      sendNextionEnd();
       currentpage = MAIN;
     }
     if (cmd == "timerrun")

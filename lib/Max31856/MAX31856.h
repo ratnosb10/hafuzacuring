@@ -4,8 +4,6 @@
 #include <Adafruit_MAX31856.h>
 #include <math.h>
 
-
-
 class MAX31856Sensor
 {
 private:
@@ -13,13 +11,13 @@ private:
     float kalman_gain = 0.05;
     float kalman_estimate = 0.0;
 
-    static const int movAvgWindow = 10;
+    static const int movAvgWindow = 50;
     float movAvgBuffer[movAvgWindow];
     int movAvgIndex = 0;
 
 public:
     MAX31856Sensor(uint8_t cs_pin) : thermo(cs_pin) {}
-    MAX31856Sensor(uint8_t a,uint8_t b,uint8_t c,uint8_t d) : thermo(a,b,c,d) {}
+    MAX31856Sensor(uint8_t a, uint8_t b, uint8_t c, uint8_t d) : thermo(a, b, c, d) {}
 
     bool begin()
     {
@@ -69,8 +67,19 @@ public:
     float readRawTemperature()
     {
         float temp = thermo.readThermocoupleTemperature();
-        if (temp > 250.0 || temp < -50.0)
-            return NAN; // range error
+       // Serial.print("Raw:");
+       // Serial.print(temp);
+        // if (temp > 250.0 || temp < -50.0)
+        //     return NAN; // range error
+        float suhucj = thermo.readCJTemperature();
+
+       // Serial.print("  CJ:");
+       // Serial.println(suhucj);
+        if (suhucj > 28)
+        {
+            float offsetsuhu = suhucj - 26;
+            temp -= offsetsuhu;
+        }
         return temp;
     }
 
@@ -103,12 +112,13 @@ public:
         float kalman = applyKalman(raw);
         return applyMovingAverage(kalman);
     }
-byte cekerrormax(float suhu){
-    byte error_=0;
-    if(suhu==0 || suhu>500) error_=1;
-    
-}
-
+    byte cekerrormax(float suhu)
+    {
+        byte error_ = 0;
+        if (suhu == 0 || suhu > 500)
+            error_ = 1;
+        return 8;
+    }
 };
 
 #endif
