@@ -18,8 +18,11 @@ void setup()
   pinMode(START_PIN, INPUT);
   pinMode(STOP_PIN, INPUT);
   pinMode(HEATER_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
   digitalWrite(HEATER_PIN, LOW);
-
+  digitalWrite(BUZZER_PIN, LOW);
+  digitalWrite(LED_PIN, LOW);
   Wire.begin();
   eeprom.begin();
   analogSetPinAttenuation(1, ADC_11db);
@@ -33,7 +36,7 @@ void setup()
 void loop()
 {
   nextionReceiveHandler();
-  hourmetertask();
+
   if (currentpage == CONFIG || currentpage == ADVANCE)
   {
     Button btn = getButtonDebounced(50);
@@ -103,6 +106,10 @@ void loop()
     float suhukalman = maxthermo.applyKalman(suhuraw);
     float suhuavg = maxthermo.applyMovingAverage(suhukalman) + adjustmentSuhu;
 
+
+
+
+    
     updatedisplay(suhuavg); // <- update tampilan via Serial
                             // temperature =sensor.getFilteredTemperature();
 
@@ -226,7 +233,7 @@ void loop()
       {
         LastState = STOPPED;
         currentState = STANDBY;
-        dspSerial.print("btn.txt=\"reset\"");  
+        dspSerial.print("btn.txt=\"reset\"");
         sendNextionEnd();
       }
       break;
@@ -246,23 +253,12 @@ void loop()
   delay(1);
 }
 
-void hourmetertask()
+void savetimer()
 {
-  unsigned long currentMillis = millis();
-  if (currentMillis - milishourmeter >= 360000)
-  {
-    milishourmeter = currentMillis;
-    hourmeter++;
-    EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
-    char buffer[10];
-    sprintf(buffer, "%06ld", hourmeter);
-    for (int i = 0; i < 6; i++)
-    {
-      dspSerial.printf("hourmeter.t%d.txt=\"%c\"", i + 10, buffer[i]);
-      sendNextionEnd();
-    }
-  }
+  EEPROM_writeAnything(ADDR_TIMERRUN, timerrun);
+  EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
 }
+
 void sendconfigdisplay()
 {
   int jamSet = csetTimer / 3600;
@@ -462,7 +458,7 @@ void saveConfig()
   EEPROM_writeAnything(ADDR_MULAI_PID, cmulaipid);
   EEPROM_writeAnything(ADDR_TIMERRUN, timerrun);
   EEPROM_writeAnything(ADDR_HOURMETER, hourmeter);
-  Serial.println("savecomplit");
+
 }
 
 void loadConfig()
@@ -523,7 +519,7 @@ void loadConfig()
   if (isnan(timerrun) || timerrun < 0 || timerrun > 999999)
     timerrun = 0;
 
-  Serial.println(csetpoint);
+/*   Serial.println(csetpoint);
   Serial.println(suhupreheat);
   Serial.println(setSuhuAlarm);
   Serial.println(csetTimer);
@@ -535,7 +531,7 @@ void loadConfig()
   Serial.println(setpressure);
   Serial.println(timereminder);
   Serial.println(adjpress);
-  Serial.println(cmulaipid);
+  Serial.println(cmulaipid); */
 }
 
 float readWithRetry(std::function<float()> reader)

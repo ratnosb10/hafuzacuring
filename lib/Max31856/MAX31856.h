@@ -103,6 +103,12 @@ public:
         float kalman = applyKalman(raw);
         return applyMovingAverage(kalman);
     }
+byte cekerrormax(float suhu){
+    byte error_=0;
+    if(suhu==0 || suhu>500) error_=1;
+    
+}
+
 };
 
 #endif

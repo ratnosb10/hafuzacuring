@@ -36,12 +36,18 @@ double csetpoint, setSuhuAlarm, suhupreheat;
 unsigned long  csetTimer;
 double cKp,cKi,cKd;
 double dran,adjustmentSuhu,setpressure,timereminder,adjpress,cmulaipid;
-unsigned long timerrun,hourmeter,milishourmeter;
+unsigned long timerrun,hourmeter,milishourmeter,cekelarmmilis ;
+bool cekalarmTriggered = false;
+bool ledState = false;
+unsigned long lastBlink = 0;
+const unsigned long blinkInterval = 500; // LED kedip tiap 500ms
 
 // === Pin Config ===
 const int START_PIN = 16;
 const int STOP_PIN = 17;
 const int HEATER_PIN = 40;
+const int BUZZER_PIN = 37;
+const int LED_PIN = 34;
 enum Button
 {
   BTN_NONE,
@@ -92,9 +98,9 @@ void loadConfig() ;
 Button readButton();
 Button getButtonDebounced(unsigned long t);
 void sendconfigdisplay();
-
+void savetimer();
 float readWithRetry(std::function<float()> reader) ;
-void hourmetertask();
+
 
 
 MAX31856Sensor maxthermo = MAX31856Sensor(8, 11, 9, 7);

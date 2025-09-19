@@ -10,10 +10,11 @@ extern unsigned long csetTimer;
 extern double cKp, cKi, cKd;
 extern double dran, adjustmentSuhu, setpressure, timereminder, adjpress, cmulaipid;
 extern byte currentpage;
-extern unsigned long timerrun;
+extern unsigned long timerrun,hourmeter;
 extern void saveConfig();
 extern void loadConfig();
 extern void sendconfigdisplay();
+extern void savetimer();
 extern bool timesup;
 String cmd;
 void nextionReceiveHandler()
@@ -71,7 +72,8 @@ void nextionReceiveHandler()
       m = getValue(strtimer, ':', 1).toInt();
       d = getValue(strtimer, ':', 2).toInt();
       timerrun = (j * 3600UL) + (m * 60UL) + d;
-      saveConfig();
+      hourmeter++;
+      savetimer();
     }
    if (cmd == "finished"){
     timesup = true;
