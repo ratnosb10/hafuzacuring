@@ -67,14 +67,14 @@ public:
     float readRawTemperature()
     {
         float temp = thermo.readThermocoupleTemperature();
-       // Serial.print("Raw:");
-       // Serial.print(temp);
+        // Serial.print("Raw:");
+        // Serial.print(temp);
         // if (temp > 250.0 || temp < -50.0)
         //     return NAN; // range error
         float suhucj = thermo.readCJTemperature();
 
-       // Serial.print("  CJ:");
-       // Serial.println(suhucj);
+        // Serial.print("  CJ:");
+        // Serial.println(suhucj);
         if (suhucj > 28)
         {
             float offsetsuhu = suhucj - 26;
@@ -105,12 +105,15 @@ public:
 
     float getFilteredTemperature()
     {
+        float outsuhu;
         float raw = readRawTemperature();
-        if (isnan(raw))
-            return NAN;
-
-        float kalman = applyKalman(raw);
-        return applyMovingAverage(kalman);
+        if (isnan(raw) || raw > 500.0)
+            return 888;
+        else
+        {
+            outsuhu = applyMovingAverage(raw);
+            return outsuhu;
+        }
     }
     byte cekerrormax(float suhu)
     {
@@ -118,6 +121,23 @@ public:
         if (suhu == 0 || suhu > 500)
             error_ = 1;
         return 8;
+    }
+    float checkcj_short()
+    {
+        float suhucj;
+
+        suhucj = thermo.readCJTemperature();
+        return suhucj;
+    }
+    float readshortTemperature()
+    {
+        float temp = thermo.readThermocoupleTemperature();
+        return temp;
+    }
+    float readshortCJ()
+    {
+        float temp = thermo.readCJTemperature();
+        return temp;
     }
 };
 

@@ -10,12 +10,14 @@ extern unsigned long csetTimer;
 extern double cKp, cKi, cKd;
 extern double dran, adjustmentSuhu, setpressure, timereminder, adjpress, cmulaipid;
 extern byte currentpage;
-extern unsigned long timerrun,hourmeter;
+extern unsigned long timerrun, hourmeter;
 extern void saveConfig();
 extern void loadConfig();
 extern void sendconfigdisplay();
 extern void savetimer();
 extern bool timesup;
+extern bool tccal;
+extern bool pidautotune;
 String cmd;
 void nextionReceiveHandler()
 {
@@ -30,14 +32,13 @@ void nextionReceiveHandler()
       dspSerial.print("page main");
       sendNextionEnd();
     }
-     if (cmd == "toadvance")
+    if (cmd == "toadvance")
     {
       sendconfigdisplay();
       currentpage = ADVANCE;
       dspSerial.print("page advance");
       sendNextionEnd();
     }
-    
     if (cmd == "save")
     {
       csetpoint = getValue(incomingString, ' ', 2).toDouble();
@@ -65,7 +66,7 @@ void nextionReceiveHandler()
       cmulaipid = getValue(incomingString, ' ', 7).toDouble() / 10;
       saveConfig();
       sendconfigdisplay();
-      
+
       /*  Serial.println(adjustmentSuhu);
        Serial.println(adjpress);
       Serial.println(cKp);
@@ -73,7 +74,7 @@ void nextionReceiveHandler()
   Serial.println(cKd);
 Serial.println(cmulaipid); */
 
-            dspSerial.print("page main");
+      dspSerial.print("page main");
       sendNextionEnd();
       currentpage = MAIN;
     }
@@ -89,11 +90,25 @@ Serial.println(cmulaipid); */
       hourmeter++;
       savetimer();
     }
-   if (cmd == "finished"){
-    timesup = true;
-   }
-  
-  
+    if (cmd == "finished")
+    {
+      timesup = true;
+    }
+    if (cmd == "resettimer")
+    {
+      timerrun = 0;
+    }
+    if (cmd == "tccal")
+    {
+      tccal = true;
+      currentpage = ADVANCE;
+    }
+   if (cmd == "pidtune")
+    {
+      pidautotune = true;
+      currentpage = ADVANCE;
+    }
+
   }
 }
 

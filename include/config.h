@@ -9,6 +9,7 @@
 #include <Wire.h>
 #include <I2C_eeprom.h>
 #include <PZEM004Tv30.h>
+#include "ADS1X15.h"
 #define EE24LC01MAXBYTES 2048
 #define DEVICEADDRESS (0x50)
 
@@ -27,12 +28,14 @@
 #define ADDR_ADJ_PRESS 96
 #define ADDR_TIMERRUN 108
 #define ADDR_HOURMETER 116
-
+#define ADDR_SHORT_VAL_SET 124
+#define ADDR_SUHU_NORMAL_SET 132
+#define ADDR_SHORT_CJ_VAL_SET 140
 I2C_eeprom eeprom(DEVICEADDRESS, I2C_DEVICESIZE_24LC64);
 template<class T> int EEPROM_writeAnything(int ee, const T& value) ;
 template<class T> int EEPROM_readAnything(int ee, T& value) ;
 
-double csetpoint, setSuhuAlarm, suhupreheat;
+double csetpoint, setSuhuAlarm, suhupreheat,cekshortval;
 unsigned long  csetTimer;
 double cKp,cKi,cKd;
 double dran,adjustmentSuhu,setpressure,timereminder,adjpress,cmulaipid;
@@ -41,6 +44,33 @@ bool cekalarmTriggered = false;
 bool ledState = false;
 unsigned long lastBlink = 0;
 const unsigned long blinkInterval = 500; // LED kedip tiap 500ms
+bool tccal = false;
+float shortval, shortvalset, shortcjval, shortcjvalset, suhunormal, suhunormalset;
+unsigned long milisshort,timecek;
+bool tcshort = false;
+
+bool pidautotune = false;
+bool initauto = false;
+bool finishauto = false;
+
+bool buzzeron = false;
+bool emergency = false;
+
+bool reachedSetpoint = false;
+
+
+bool isiangin = false;
+unsigned long pressmilis, windowpress;
+byte stepinf=10;
+float pressawal,  selisihpress;
+byte counter;
+
+enum LampMode {
+  OFF,
+  ON,
+  BLINKING
+};
+LampMode lampStatus = OFF;
 
 // === Pin Config ===
 const int START_PIN = 16;
@@ -51,7 +81,9 @@ const int LED_PIN = 34;
 const int CEKTC_PIN = 38;
 const int EMER_PIN = 21;
 const int BIGRELAY_PIN = 39; 
-
+const int INF_PIN = 4;
+const int RIL_PIN = 5;
+const int RESET_PIN = 18;
 enum Button
 {
   BTN_NONE,
@@ -76,7 +108,8 @@ enum State
   PRERUNNING,
   RUNNING,
   FINISHED,
-  STOPPED
+  STOPPED,
+  EMERGENCY
 };
 
 
@@ -105,10 +138,19 @@ void sendconfigdisplay();
 void savetimer();
 float readWithRetry(std::function<float()> reader) ;
 void updatehourmeter();
+void cekshorttc(float suhu);
+void updateLamp(LampMode mode);
+void kirimautotune(float Kp, float Ki, float Kd,float mulaipid);
+void isiairbag();
 
 
 MAX31856Sensor maxthermo = MAX31856Sensor(8, 11, 9, 7);
 PZEM004Tv30 pzem(Serial0, 2, 3);
+ADS1115 ADS(0x4A);
+
+
+
+
 #define cektc 38
 
 #endif

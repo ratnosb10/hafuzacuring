@@ -40,7 +40,7 @@ unsigned long windowStartTime = 0;
 unsigned long now = 0;
 int pinheater;
 PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
-
+extern void kirimautotune(float Kp, float Ki, float Kd,float mulaipid);
 // === Inisialisasi Autotune ===
 void initAutoTune(float suhuSekarang, int HEATER_PIN)
 {
@@ -77,7 +77,7 @@ bool autotune(float suhuSekarang)
   }
 
   // Tahap Naik 10 derajat
-  if (prosesNaik && suhuSekarang >= suhuAwal + 10.0)
+  if (prosesNaik && suhuSekarang >= suhuAwal + 15.0)
   {
     digitalWrite(pinheater, LOW);
     heaterNyala = false;
@@ -111,7 +111,7 @@ bool autotune(float suhuSekarang)
       if (delta != 0)
       {
         Kp = 75.0 / delta;
-        Ki = Kp / (5 * delta);
+        Ki = Kp / (2 * delta);
         Kd = Kp * (0.5 * delta);
       }
       else
@@ -123,6 +123,7 @@ bool autotune(float suhuSekarang)
       Ki = constrain(Ki, 0, 0.5);
       Kd = constrain(Kd, 0, 200);
 
+       kirimautotune( Kp,  Ki,  Kd, mulaipid);
       Serial.println("=== AUTOTUNE SELESAI ===");
       Serial.print("suhuOff: ");
       Serial.println(suhuOff);
