@@ -5,7 +5,6 @@
 #include "MAX31856.h"
 #include <mypid.h>
 #include "driver/adc.h"
-#include "NextionHandler.h"
 #include <Wire.h>
 #include <I2C_eeprom.h>
 #include <PZEM004Tv30.h>
@@ -31,6 +30,8 @@
 #define ADDR_SHORT_VAL_SET 124
 #define ADDR_SUHU_NORMAL_SET 132
 #define ADDR_SHORT_CJ_VAL_SET 140
+
+
 I2C_eeprom eeprom(DEVICEADDRESS, I2C_DEVICESIZE_24LC64);
 template<class T> int EEPROM_writeAnything(int ee, const T& value) ;
 template<class T> int EEPROM_readAnything(int ee, T& value) ;
@@ -130,6 +131,8 @@ unsigned long lastDisplayUpdate = 0;
 unsigned long pbmilis;
 void updatedisplay(float temperature);
 const char *getStatusText();
+String cmd;
+
 void saveConfig() ;
 void loadConfig() ;
 Button readButton();
@@ -142,8 +145,10 @@ void cekshorttc(float suhu);
 void updateLamp(LampMode mode);
 void kirimautotune(float Kp, float Ki, float Kd,float mulaipid);
 void isiairbag();
-
-
+String getValue(String data, char separator, int index);
+void nextionReceiveHandler();
+void sendconfigdisplay();
+void sendNextionEnd();
 MAX31856Sensor maxthermo = MAX31856Sensor(8, 11, 9, 7);
 PZEM004Tv30 pzem(Serial0, 2, 3);
 ADS1115 ADS(0x4A);

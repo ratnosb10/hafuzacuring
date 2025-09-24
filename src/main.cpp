@@ -13,7 +13,7 @@ void setup()
 {
   Serial.begin(115200);
   delay(1000);
-  dspSerial.begin(9600, SERIAL_8N1, 12, 13);
+  Serial1.begin(9600, SERIAL_8N1, 12, 13);
   Serial0.begin(9600, SERIAL_8N1, 2, 3);
   pinMode(START_PIN, INPUT);
   pinMode(STOP_PIN, INPUT);
@@ -48,338 +48,7 @@ void setup()
 void loop()
 {
 
-  if (digitalRead(EMER_PIN) == 1)
-  {
-    digitalWrite(BIGRELAY_PIN, HIGH);
-    emergency = true;
-    currentState = EMERGENCY;
-  }
-  nextionReceiveHandler();
 
-  if (currentpage == CONFIG || currentpage == ADVANCE)
-  {
-    if (pidautotune)
-    {
-      if (!initauto)
-      {
-        initauto = true;
-        initAutoTune(maxthermo.getFilteredTemperature() + adjustmentSuhu, HEATER_PIN);
-      }
-      finishauto = autotune(maxthermo.getFilteredTemperature() + adjustmentSuhu);
-      if (finishauto)
-      {
-        Serial.println("Autotune selesai, kirim hasil ke Nextion");
-        pidautotune = false;
-        initauto = false;
-        finishauto = false;
-      }
-    }
-    else if (tccal)
-    {
-
-      if (digitalRead(START_PIN) == 0)
-      {
-        shortval = 0;
-        shortcjval = 0;
-        suhunormal = 0;
-        dspSerial.print("t8.txt=\"MULAI KALIBRASI ...\"");
-        sendNextionEnd();
-        int j1val = 0;
-        for (byte i = 0; i < 10; i++)
-        {
-          suhunormal += maxthermo.readRawTemperature();
-          delay(10);
-          digitalWrite(CEKTC_PIN, 1);
-          delay(10);
-          shortval += maxthermo.readshortTemperature();
-          delay(10);
-          digitalWrite(CEKTC_PIN, 0);
-          shortcjval += maxthermo.readshortCJ();
-          delay(500);
-          j1val += 9;
-          dspSerial.printf("j1.val=%d", j1val);
-          sendNextionEnd();
-        }
-        dspSerial.printf("j1.val=%d", 100);
-        sendNextionEnd();
-        dspSerial.print("t8.txt=\"--SELESAI--\"");
-        sendNextionEnd();
-        shortvalset = shortval / 10;
-        shortcjvalset = shortcjval / 10;
-        suhunormalset = suhunormal / 10;
-
-        EEPROM_writeAnything(ADDR_SHORT_VAL_SET, shortvalset);
-        EEPROM_writeAnything(ADDR_SUHU_NORMAL_SET, suhunormalset);
-        EEPROM_writeAnything(ADDR_SHORT_CJ_VAL_SET, shortcjvalset);
-        tccal = false;
-        delay(2000);
-        dspSerial.print("page main");
-        sendNextionEnd();
-        currentpage = MAIN;
-      }
-    }
-    else
-    {
-      Button btn = getButtonDebounced(50);
-      if (btn == BTN_MENU)
-      {
-        dspSerial.print("cursor.val++");
-        sendNextionEnd();
-        dspSerial.print("var.val=0");
-        sendNextionEnd();
-        dspSerial.print("cmd.val=1");
-        sendNextionEnd();
-        delay(400);
-      }
-      if (btn == BTN_MINUS)
-      {
-        if (buttonCounter < 10)
-        {
-          dspSerial.print("var.val=-1");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        else
-        {
-          dspSerial.print("var.val=-10");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        buttonCounter++;
-        delay(400);
-      }
-      if (btn == BTN_PLUS)
-      {
-        if (buttonCounter < 10)
-        {
-          dspSerial.print("var.val=1");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        else
-        {
-          dspSerial.print("var.val=10");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        buttonCounter++;
-        delay(400);
-      }
-      if (btn == BTN_OK)
-      {
-        dspSerial.print("cmd.val=2");
-        sendNextionEnd();
-        delay(400);
-      }
-    }
-  }
-  if (currentpage == MAIN)
-  {
-
-    float voltage = readWithRetry([&]()
-                                  { return pzem.voltage(); });
-    arus = readWithRetry([&]()
-                         { return pzem.current(); });
-
-    // Serial.print("voltage ");
-    // Serial.print(voltage);
-    // Serial.print("   arus ");
-    // Serial.println(arus);
-
-    float suhuavg = maxthermo.getFilteredTemperature() + adjustmentSuhu;
-    cekshorttc(suhuavg);
-    isiairbag();
-    updatedisplay(suhuavg); // <- update tampilan via Serial
-                            // temperature =sensor.getFilteredTemperature();
-
-    bool startpress = false, stoppress = false, resetpress = false, infpress = false;
-
-    if (digitalRead(START_PIN) == 1 && digitalRead(STOP_PIN) == 0 && digitalRead(RESET_PIN) == 0)
-      pbmilis = millis();
-    else
-    {
-      if (millis() - pbmilis > 50)
-      {
-        if (digitalRead(START_PIN) == 0)
-          startpress = true;
-        if (digitalRead(STOP_PIN) == 1)
-          stoppress = true;
-        if (digitalRead(RESET_PIN) == 1)
-          infpress = true;
-      }
-      if (millis() - pbmilis > 2000)
-        if (digitalRead(STOP_PIN) == 1)
-          resetpress = true;
-    }
-
-    switch (currentState)
-    {
-    case STANDBY:
-    stepinf = 10;
-      Heteroff();
-      Heaterpin = 0;
-      lampStatus = OFF;
-      if (getButtonDebounced(3000) == BTN_MENU)
-      {
-        dspSerial.print("page config");
-        sendNextionEnd();
-        currentpage = CONFIG;
-      }
-      else if (startpress)
-      {
-        LastState = STANDBY;
-        currentState = PREHEATING;
-        setupPID(HEATER_PIN, cKp / 5, cKi / 5, cKd, cmulaipid);
-      }
-      if (resetpress)
-      {
-        dspSerial.print("btn.txt=\"reset\"");
-        sendNextionEnd();
-      }
-      break;
-
-    case PREHEATING:
-    stepinf = 10;
-      Heaterpin = runPID(suhuavg, suhupreheat);
-      lampStatus = ON;
-      if (stoppress)
-      {
-        LastState = PREHEATING;
-        currentState = STOPPED;
-      }
-      if (suhuavg >= suhupreheat)
-        currentState = STANDBY2;
-      break;
-    case STANDBY2:
-      Heaterpin = runPID(suhuavg, suhupreheat);
-      lampStatus = OFF;
-      if (startpress)
-      {
-        LastState = STANDBY2;
-        currentState = PRERUNNING;
-        setupPID(HEATER_PIN, cKp, cKi, cKd, cmulaipid);
-        reset_pid();
-      }
-      if (stoppress)
-      {
-        LastState = STANDBY2;
-        currentState = STOPPED;
-      }
-      if (infpress)
-      {
-        isiangin = true;
-        stepinf = 0;
-      }
-
-      break;
-    case PRERUNNING:
-    stepinf = 2;
-      lampStatus = ON;
-      Heaterpin = runPID(suhuavg, csetpoint);
-      if (stoppress)
-      {
-        LastState = PRERUNNING;
-        currentState = STOPPED;
-      }
-      if (suhuavg >= csetpoint && suhuavg <200)
-      {
-        currentState = RUNNING;
-        dspSerial.print("btn.txt=\"start\"");
-        sendNextionEnd();
-      }
-      break;
-    case RUNNING:
-    stepinf = 2;
-      lampStatus = ON;
-      Heaterpin = runPID(suhuavg, csetpoint);
-      if (stoppress)
-      {
-        LastState = RUNNING;
-        currentState = STOPPED;
-        dspSerial.print("btn.txt=\"stop\"");
-        sendNextionEnd();
-      }
-      if (timesup)
-      {
-        LastState = RUNNING;
-        timesup = false;
-        currentState = FINISHED;
-      }
-      break;
-    case FINISHED:
-    stepinf = 10;
-      if (stoppress)
-      {
-        LastState = FINISHED;
-        currentState = STANDBY;
-        dspSerial.print("btn.txt=\"reset\"");
-        sendNextionEnd();
-      }
-      break;
-    case STOPPED:
-    stepinf = 10;
-      lampStatus = OFF;
-      Heaterpin = 0;
-      Heteroff();
-      if (startpress)
-      {
-        reset_pid();
-        if (LastState == RUNNING)
-        {
-          currentState = RUNNING;
-        }
-        if (LastState == PREHEATING)
-          currentState = PREHEATING;
-        if (LastState == PRERUNNING)
-          currentState = PRERUNNING;
-      }
-      if (resetpress)
-      {
-        LastState = STOPPED;
-        currentState = STANDBY;
-        dspSerial.print("btn.txt=\"reset\"");
-        sendNextionEnd();
-      }
-      break;
-    case EMERGENCY:
-    stepinf = 10;
-      lampStatus = OFF;
-      Heaterpin = 0;
-      Heteroff();
-      break;
-    }
-
-    buzzeron = false;
-    if (tcshort)
-      buzzeron = true;
-    if (suhuavg >= setSuhuAlarm && setSuhuAlarm > 0)
-      buzzeron = true;
-    if (emergency)
-      buzzeron = true;
-    if (buzzeron)
-      digitalWrite(BUZZER_PIN, HIGH);
-    else
-      digitalWrite(BUZZER_PIN, LOW);
-    updateLamp(lampStatus);
-  }
-  if (currentpage == OPENING)
-  {
-    dspSerial.print("page opening");
-    sendNextionEnd();
-    delay(3000);
-    loadConfig();
-    sendconfigdisplay();
-    dspSerial.print("page main");
-    sendNextionEnd();
-    currentpage = MAIN;
-    Serial.println("==============siap");
-    updatehourmeter();
-  }
-  delay(1);
 }
 
 void savetimer()
@@ -397,7 +66,7 @@ void updatehourmeter()
   // kirim per karakter
   for (int i = 0; i < 6; i++)
   {
-    dspSerial.printf("t%d.txt=\"%c\"", i + 10, buffer[i]);
+    Serial1.printf("t%d.txt=\"%c\"", i + 10, buffer[i]);
     sendNextionEnd();
   }
 }
@@ -406,13 +75,13 @@ void sendconfigdisplay()
   int jamSet = csetTimer / 3600;
   int menitSet = (csetTimer % 3600) / 60;
 
-  dspSerial.printf("main.t7.txt=\"%d\"", (int)suhupreheat);
+  Serial1.printf("main.t7.txt=\"%d\"", (int)suhupreheat);
   sendNextionEnd();
-  dspSerial.printf("main.t8.txt=\"%d\"", (int)csetpoint);
+  Serial1.printf("main.t8.txt=\"%d\"", (int)csetpoint);
   sendNextionEnd();
-  dspSerial.printf("main.t2.txt=\"%02d:%02d\"", jamSet, menitSet);
+  Serial1.printf("main.t2.txt=\"%02d:%02d\"", jamSet, menitSet);
   sendNextionEnd();
-  dspSerial.printf("main.t3.txt=\"%d\"", (int)setpressure);
+  Serial1.printf("main.t3.txt=\"%d\"", (int)setpressure);
   sendNextionEnd();
   unsigned long hours = timerrun / 3600;
   unsigned long minutes = (timerrun % 3600) / 60;
@@ -422,44 +91,44 @@ void sendconfigdisplay()
   sprintf(buffer, "%06ld", hourmeter);
   for (int i = 0; i < 6; i++)
   {
-    dspSerial.printf("hourmeter.t%d.txt=\"%c\"", i + 10, buffer[i]);
+    Serial1.printf("hourmeter.t%d.txt=\"%c\"", i + 10, buffer[i]);
     sendNextionEnd();
   }
 
-  dspSerial.printf("main.tjam.val=%d", hours);
+  Serial1.printf("main.tjam.val=%d", hours);
   sendNextionEnd();
-  dspSerial.printf("main.tmenit.val=%d", minutes);
+  Serial1.printf("main.tmenit.val=%d", minutes);
   sendNextionEnd();
-  dspSerial.printf("main.tdetik.val=%d", seconds);
-  sendNextionEnd();
-
-  dspSerial.printf("config.n1.val=%d", (int)csetpoint);
-  sendNextionEnd();
-  dspSerial.printf("config.n2.val=%d", (int)suhupreheat);
-  sendNextionEnd();
-  dspSerial.printf("config.n3.val=%d", (int)setpressure);
+  Serial1.printf("main.tdetik.val=%d", seconds);
   sendNextionEnd();
 
-  dspSerial.printf("config.n4.val=%d", (int)jamSet);
+  Serial1.printf("config.n1.val=%d", (int)csetpoint);
   sendNextionEnd();
-  dspSerial.printf("config.n5.val=%d", (int)menitSet);
+  Serial1.printf("config.n2.val=%d", (int)suhupreheat);
   sendNextionEnd();
-  dspSerial.printf("config.n6.val=%d", (int)setSuhuAlarm);
-  sendNextionEnd();
-  dspSerial.printf("config.n7.val=%d", (int)timereminder);
+  Serial1.printf("config.n3.val=%d", (int)setpressure);
   sendNextionEnd();
 
-  dspSerial.printf("advance.n1.val=%1.0f", adjustmentSuhu);
+  Serial1.printf("config.n4.val=%d", (int)jamSet);
   sendNextionEnd();
-  dspSerial.printf("advance.n2.val=%1.0f", adjpress);
+  Serial1.printf("config.n5.val=%d", (int)menitSet);
   sendNextionEnd();
-  dspSerial.printf("advance.x0.val=%1.0f", cKp * 10);
+  Serial1.printf("config.n6.val=%d", (int)setSuhuAlarm);
   sendNextionEnd();
-  dspSerial.printf("advance.x1.val=%1.0f", cKi * 10);
+  Serial1.printf("config.n7.val=%d", (int)timereminder);
   sendNextionEnd();
-  dspSerial.printf("advance.x2.val=%1.0f", cKd * 10);
+
+  Serial1.printf("advance.n1.val=%1.0f", adjustmentSuhu);
   sendNextionEnd();
-  dspSerial.printf("advance.x3.val=%1.0f", cmulaipid * 10);
+  Serial1.printf("advance.n2.val=%1.0f", adjpress);
+  sendNextionEnd();
+  Serial1.printf("advance.x0.val=%1.0f", cKp * 10);
+  sendNextionEnd();
+  Serial1.printf("advance.x1.val=%1.0f", cKi * 10);
+  sendNextionEnd();
+  Serial1.printf("advance.x2.val=%1.0f", cKd * 10);
+  sendNextionEnd();
+  Serial1.printf("advance.x3.val=%1.0f", cmulaipid * 10);
   sendNextionEnd();
 }
 void updatedisplay(float temperature)
@@ -492,15 +161,15 @@ void updatedisplay(float temperature)
 
     if (tcshort)
     {
-      dspSerial.printf("tsuhu.txt=\"%s\"", "SRT");
+      Serial1.printf("tsuhu.txt=\"%s\"", "SRT");
       suhudsp = 500;
     }
     else if (temperature == 888)
-      dspSerial.printf("tsuhu.txt=\"%s\"", "OPN");
+      Serial1.printf("tsuhu.txt=\"%s\"", "OPN");
     else if (suhudsp >= 100.0)
-      dspSerial.printf("tsuhu.txt=\"%d\"", (int)suhudsp);
+      Serial1.printf("tsuhu.txt=\"%d\"", (int)suhudsp);
     else
-      dspSerial.printf("tsuhu.txt=\"%.1f\"", suhudsp);
+      Serial1.printf("tsuhu.txt=\"%.1f\"", suhudsp);
     sendNextionEnd();
     unsigned int warna;
     if (suhudsp < setpoint)
@@ -509,43 +178,43 @@ void updatedisplay(float temperature)
       warna = 34784;
     if (suhudsp >= setpoint + 3 && currentState != STANDBY2)
       warna = 55782;
-    dspSerial.printf("tsuhu.pco=%d", warna);
+    Serial1.printf("tsuhu.pco=%d", warna);
     sendNextionEnd();
 
     // arus = random(50, 60);
     // arus /= 10.0;
     int arusint = arus * 10;
-    dspSerial.printf("xarus.val=%d", arusint);
+    Serial1.printf("xarus.val=%d", arusint);
     sendNextionEnd();
 
     //  pressure = random(30, 33);
-    dspSerial.printf("tpress.txt=\"%.0f\"", pressure);
+    Serial1.printf("tpress.txt=\"%.0f\"", pressure);
     sendNextionEnd();
 
-    dspSerial.printf("t0.txt=\"%s\"", getStatusText());
+    Serial1.printf("t0.txt=\"%s\"", getStatusText());
     sendNextionEnd();
 
-    dspSerial.printf("p0.pic=%d", Heaterpin ? 3 : 2);
+    Serial1.printf("p0.pic=%d", Heaterpin ? 3 : 2);
     sendNextionEnd();
   }
 }
 void sendNextionEnd()
 {
-  dspSerial.write(0xFF);
-  dspSerial.write(0xFF);
-  dspSerial.write(0xFF);
+  Serial1.write(0xFF);
+  Serial1.write(0xFF);
+  Serial1.write(0xFF);
 }
 void kirimautotune(float Kp, float Ki, float Kd, float mulaipid)
 {
-  dspSerial.printf("advance.x0.val=%1.0f", Kp * 10);
+  Serial1.printf("advance.x0.val=%1.0f", Kp * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x1.val=%1.0f", Ki * 10);
+  Serial1.printf("advance.x1.val=%1.0f", Ki * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x2.val=%1.0f", Kd * 10);
+  Serial1.printf("advance.x2.val=%1.0f", Kd * 10);
   sendNextionEnd();
-  dspSerial.printf("advance.x3.val=%1.0f", mulaipid * 10);
+  Serial1.printf("advance.x3.val=%1.0f", mulaipid * 10);
   sendNextionEnd();
-  dspSerial.print("vis advance.j0,0");
+  Serial1.print("vis advance.j0,0");
   sendNextionEnd();
 }
 void cekshorttc(float suhu)
@@ -978,4 +647,116 @@ int EEPROM_readAnything(int ee, T &value)
   for (i = 0; i < sizeof(value); i++)
     *p++ = eeprom.readByte(ee++);
   return i;
+}
+
+String getValue(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length() - 1;
+
+  for (int i = 0; i <= maxIndex && found <= index; i++)
+  {
+    if (data.charAt(i) == separator || i == maxIndex)
+    {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i + 1 : i;
+    }
+  }
+
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+void nextionReceiveHandler()
+{
+  while (Serial1.available())
+  {
+    String incomingString = Serial1.readStringUntil('$');
+    cmd = getValue(incomingString, ' ', 1);
+    if (cmd == "tomain")
+    {
+      sendconfigdisplay();
+      currentpage = MAIN;
+      Serial1.print("page main");
+      sendNextionEnd();
+    }
+    if (cmd == "toadvance")
+    {
+      sendconfigdisplay();
+      currentpage = ADVANCE;
+      Serial1.print("page advance");
+      sendNextionEnd();
+    }
+    if (cmd == "save")
+    {
+      csetpoint = getValue(incomingString, ' ', 2).toDouble();
+      suhupreheat = getValue(incomingString, ' ', 3).toDouble();
+      setpressure = getValue(incomingString, ' ', 4).toDouble();
+      setSuhuAlarm = getValue(incomingString, ' ', 7).toDouble();
+      timereminder = getValue(incomingString, ' ', 8).toDouble();
+      unsigned long jam = getValue(incomingString, ' ', 5).toInt();
+      unsigned long menit = getValue(incomingString, ' ', 6).toInt();
+      csetTimer = (jam * 3600UL) + (menit * 60UL);
+      saveConfig();
+      Serial1.print("page main");
+      sendNextionEnd();
+      loadConfig();
+      sendconfigdisplay();
+      currentpage = MAIN;
+    }
+    if (cmd == "saveadvan")
+    {
+      adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
+      adjpress = getValue(incomingString, ' ', 3).toDouble();
+      cKp = getValue(incomingString, ' ', 4).toDouble() / 10;
+      cKi = getValue(incomingString, ' ', 5).toDouble() / 10;
+      cKd = getValue(incomingString, ' ', 6).toDouble() / 10;
+      cmulaipid = getValue(incomingString, ' ', 7).toDouble() / 10;
+      saveConfig();
+      sendconfigdisplay();
+
+      /*  Serial.println(adjustmentSuhu);
+       Serial.println(adjpress);
+      Serial.println(cKp);
+  Serial.println(cKi);
+  Serial.println(cKd);
+Serial.println(cmulaipid); */
+
+      Serial1.print("page main");
+      sendNextionEnd();
+      currentpage = MAIN;
+    }
+    if (cmd == "timerrun")
+    {
+      String strtimer;
+      strtimer = getValue(incomingString, ' ', 2);
+      int j, m, d;
+      j = getValue(strtimer, ':', 0).toInt();
+      m = getValue(strtimer, ':', 1).toInt();
+      d = getValue(strtimer, ':', 2).toInt();
+      timerrun = (j * 3600UL) + (m * 60UL) + d;
+      hourmeter++;
+      savetimer();
+    }
+    if (cmd == "finished")
+    {
+      timesup = true;
+    }
+    if (cmd == "resettimer")
+    {
+      timerrun = 0;
+    }
+    if (cmd == "tccal")
+    {
+      tccal = true;
+      currentpage = ADVANCE;
+    }
+   if (cmd == "pidtune")
+    {
+      pidautotune = true;
+      currentpage = ADVANCE;
+    }
+
+  }
 }
