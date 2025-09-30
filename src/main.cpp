@@ -9,11 +9,57 @@
 
 byte currentpage;
 
+
+
+bool menuPressed      = false;
+bool masukMenu       = false;
+bool okePressed       = false;
+bool plusPressed      = false;
+bool minusPressed     = false;
+
+bool startPressed     = false;
+bool stopPressed      = false;
+bool stopResetPressed = false;  // long press stop
+bool emergencyPressed = false;
+bool inflatorPressed  = false;
+
+
+struct Button {
+  uint8_t pin;
+  bool state;
+  bool lastState;
+  unsigned long lastDebounceTime;
+  unsigned long pressedTime;
+};
+
+#define ADC_PIN 1
+
+#define ADC_MENU_MIN   10
+#define ADC_MENU_MAX   19
+#define ADC_OKE_MIN    20
+#define ADC_OKE_MAX    29
+#define ADC_PLUS_MIN   30
+#define ADC_PLUS_MAX   39
+#define ADC_MINUS_MIN  40
+#define ADC_MINUS_MAX  49
+
+const unsigned long debounceDelay = 50;   // ms
+const unsigned long longPressTime = 2000; // 2 detik
+
+Button btnStart     = {START_PIN, HIGH, HIGH, 0, 0};
+Button btnStop      = {STOP_PIN, HIGH, HIGH, 0, 0};
+Button btnEmergency = {EMER_PIN, HIGH, HIGH, 0, 0};
+Button btnInflator  = {RESET_PIN, HIGH, HIGH, 0, 0};
+int lastAdcButton = -1;
+int stableAdcButton = -1;
+unsigned long lastAdcChangeTime = 0;
+unsigned long menuPressStart = 0;
+bool menuHeld = false;
 void setup()
 {
   Serial.begin(115200);
   delay(1000);
-  dspSerial.begin(9600, SERIAL_8N1, 12, 13);
+  dspSerial.begin(9600, SERIAL_8N1, 13, 12);
   Serial0.begin(9600, SERIAL_8N1, 2, 3);
   pinMode(START_PIN, INPUT);
   pinMode(STOP_PIN, INPUT);
@@ -45,341 +91,487 @@ void setup()
   currentpage = OPENING;
 }
 
+
+
+void handleButton(Button &btn, bool &flag) {
+  int reading = digitalRead(btn.pin);
+
+  if (reading != btn.lastState) {
+    btn.lastDebounceTime = millis();
+  }
+
+  if ((millis() - btn.lastDebounceTime) > debounceDelay) {
+    if (reading != btn.state) {
+      btn.state = reading;
+
+      if (btn.state == LOW) {
+        // tombol baru ditekan
+        btn.pressedTime = millis();
+
+        if (btn.pin == STOP_PIN) {
+          // belum tahu short/long → tunggu cek di bawah
+        } else {
+          flag = true;  // tombol lain langsung event saat ditekan
+        }
+      }
+      // saat dilepas → tidak lakukan apa-apa
+    }
+  }
+
+  // --- logika khusus STOP ---
+  if (btn.pin == STOP_PIN && btn.state == LOW) {
+    unsigned long pressDuration = millis() - btn.pressedTime;
+
+    if (!stopResetPressed && pressDuration >= longPressTime) {
+      stopResetPressed = true;   // long press terdeteksi
+    } 
+    else if (!stopPressed && pressDuration >= debounceDelay && pressDuration < longPressTime) {
+      stopPressed = true;        // short press terdeteksi saat ditekan
+    }
+  }
+
+  btn.lastState = reading;
+}
+int detectAdcButton(int val) {
+  if (val > ADC_MENU_MIN && val < ADC_MENU_MAX) return 0;
+  if (val > ADC_OKE_MIN && val < ADC_OKE_MAX) return 1;
+  if (val > ADC_PLUS_MIN && val < ADC_PLUS_MAX) return 2;
+  if (val > ADC_MINUS_MIN && val < ADC_MINUS_MAX) return 3;
+  return -1; // tidak ada tombol
+}
+void readAdcButtons() {
+  int adcVal = analogRead(ADC_PIN);
+  int currentButton = detectAdcButton(adcVal);
+
+  if (currentButton != lastAdcButton) {
+    lastAdcChangeTime = millis();
+    lastAdcButton = currentButton;
+  }
+
+  if ((millis() - lastAdcChangeTime) > debounceDelay) {
+    if (currentButton != stableAdcButton) {
+      stableAdcButton = currentButton;
+
+      // short press detection (saat stabil berubah)
+      if (stableAdcButton == 0) {
+        menuPressed = true;
+        menuPressStart = millis();   // catat waktu awal ditekan
+        menuHeld = true;
+      } else if (stableAdcButton == 1) {
+        okePressed = true;
+      } else if (stableAdcButton == 2) {
+        plusPressed = true;
+      } else if (stableAdcButton == 3) {
+        minusPressed = true;
+      } else {
+        // tombol dilepas
+        menuHeld = false;
+      }
+    }
+  }
+
+  // cek long press menu (tahan >2 detik)
+  if (menuHeld && !masukMenu) {
+    if (millis() - menuPressStart > longPressTime) {
+      masukMenu = true;    
+      
+  }
+  }
+}
+
 void loop()
 {
 
-  if (digitalRead(EMER_PIN) == 1)
-  {
-    digitalWrite(BIGRELAY_PIN, HIGH);
-    emergency = true;
-    currentState = EMERGENCY;
+  readAdcButtons();
+  handleButton(btnStart, startPressed);
+  handleButton(btnStop,  stopPressed);
+  handleButton(btnEmergency, emergencyPressed);
+  handleButton(btnInflator,  inflatorPressed);
+
+  // --- contoh pemakaian flag ---
+  if (menuPressed) {
+    menuPressed = false;
+    Serial.println(">> MENU event");
   }
-  nextionReceiveHandler();
-
-  if (currentpage == CONFIG || currentpage == ADVANCE)
-  {
-    if (pidautotune)
-    {
-      if (!initauto)
-      {
-        initauto = true;
-        initAutoTune(maxthermo.getFilteredTemperature() + adjustmentSuhu, HEATER_PIN);
-      }
-      finishauto = autotune(maxthermo.getFilteredTemperature() + adjustmentSuhu);
-      if (finishauto)
-      {
-        Serial.println("Autotune selesai, kirim hasil ke Nextion");
-        pidautotune = false;
-        initauto = false;
-        finishauto = false;
-      }
-    }
-    else if (tccal)
-    {
-
-      if (digitalRead(START_PIN) == 0)
-      {
-        shortval = 0;
-        shortcjval = 0;
-        suhunormal = 0;
-        dspSerial.print("t8.txt=\"MULAI KALIBRASI ...\"");
-        sendNextionEnd();
-        int j1val = 0;
-        for (byte i = 0; i < 10; i++)
-        {
-          suhunormal += maxthermo.readRawTemperature();
-          delay(10);
-          digitalWrite(CEKTC_PIN, 1);
-          delay(10);
-          shortval += maxthermo.readshortTemperature();
-          delay(10);
-          digitalWrite(CEKTC_PIN, 0);
-          shortcjval += maxthermo.readshortCJ();
-          delay(500);
-          j1val += 9;
-          dspSerial.printf("j1.val=%d", j1val);
-          sendNextionEnd();
-        }
-        dspSerial.printf("j1.val=%d", 100);
-        sendNextionEnd();
-        dspSerial.print("t8.txt=\"--SELESAI--\"");
-        sendNextionEnd();
-        shortvalset = shortval / 10;
-        shortcjvalset = shortcjval / 10;
-        suhunormalset = suhunormal / 10;
-
-        EEPROM_writeAnything(ADDR_SHORT_VAL_SET, shortvalset);
-        EEPROM_writeAnything(ADDR_SUHU_NORMAL_SET, suhunormalset);
-        EEPROM_writeAnything(ADDR_SHORT_CJ_VAL_SET, shortcjvalset);
-        tccal = false;
-        delay(2000);
-        dspSerial.print("page main");
-        sendNextionEnd();
-        currentpage = MAIN;
-      }
-    }
-    else
-    {
-      Button btn = getButtonDebounced(50);
-      if (btn == BTN_MENU)
-      {
-        dspSerial.print("cursor.val++");
-        sendNextionEnd();
-        dspSerial.print("var.val=0");
-        sendNextionEnd();
-        dspSerial.print("cmd.val=1");
-        sendNextionEnd();
-        delay(400);
-      }
-      if (btn == BTN_MINUS)
-      {
-        if (buttonCounter < 10)
-        {
-          dspSerial.print("var.val=-1");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        else
-        {
-          dspSerial.print("var.val=-10");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        buttonCounter++;
-        delay(400);
-      }
-      if (btn == BTN_PLUS)
-      {
-        if (buttonCounter < 10)
-        {
-          dspSerial.print("var.val=1");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        else
-        {
-          dspSerial.print("var.val=10");
-          sendNextionEnd();
-          dspSerial.print("cmd.val=1");
-          sendNextionEnd();
-        }
-        buttonCounter++;
-        delay(400);
-      }
-      if (btn == BTN_OK)
-      {
-        dspSerial.print("cmd.val=2");
-        sendNextionEnd();
-        delay(400);
-      }
-    }
+  if (okePressed) {
+    okePressed = false;
+    Serial.println(">> OKE event");
   }
-  if (currentpage == MAIN)
-  {
-
-    float voltage = readWithRetry([&]()
-                                  { return pzem.voltage(); });
-    arus = readWithRetry([&]()
-                         { return pzem.current(); });
-
-    // Serial.print("voltage ");
-    // Serial.print(voltage);
-    // Serial.print("   arus ");
-    // Serial.println(arus);
-
-    float suhuavg = maxthermo.getFilteredTemperature() + adjustmentSuhu;
-    cekshorttc(suhuavg);
-    isiairbag();
-    updatedisplay(suhuavg); // <- update tampilan via Serial
-                            // temperature =sensor.getFilteredTemperature();
-
-    bool startpress = false, stoppress = false, resetpress = false, infpress = false;
-
-    if (digitalRead(START_PIN) == 1 && digitalRead(STOP_PIN) == 0 && digitalRead(RESET_PIN) == 0)
-      pbmilis = millis();
-    else
-    {
-      if (millis() - pbmilis > 50)
-      {
-        if (digitalRead(START_PIN) == 0)
-          startpress = true;
-        if (digitalRead(STOP_PIN) == 1)
-          stoppress = true;
-        if (digitalRead(RESET_PIN) == 1)
-          infpress = true;
-      }
-      if (millis() - pbmilis > 2000)
-        if (digitalRead(STOP_PIN) == 1)
-          resetpress = true;
-    }
-
-    switch (currentState)
-    {
-    case STANDBY:
-    stepinf = 10;
-      Heteroff();
-      Heaterpin = 0;
-      lampStatus = OFF;
-      if (getButtonDebounced(3000) == BTN_MENU)
-      {
-        dspSerial.print("page config");
-        sendNextionEnd();
-        currentpage = CONFIG;
-      }
-      else if (startpress)
-      {
-        LastState = STANDBY;
-        currentState = PREHEATING;
-        setupPID(HEATER_PIN, cKp / 5, cKi / 5, cKd, cmulaipid);
-      }
-      if (resetpress)
-      {
-        dspSerial.print("btn.txt=\"reset\"");
-        sendNextionEnd();
-      }
-      break;
-
-    case PREHEATING:
-    stepinf = 10;
-      Heaterpin = runPID(suhuavg, suhupreheat);
-      lampStatus = ON;
-      if (stoppress)
-      {
-        LastState = PREHEATING;
-        currentState = STOPPED;
-      }
-      if (suhuavg >= suhupreheat)
-        currentState = STANDBY2;
-      break;
-    case STANDBY2:
-      Heaterpin = runPID(suhuavg, suhupreheat);
-      lampStatus = OFF;
-      if (startpress)
-      {
-        LastState = STANDBY2;
-        currentState = PRERUNNING;
-        setupPID(HEATER_PIN, cKp, cKi, cKd, cmulaipid);
-        reset_pid();
-      }
-      if (stoppress)
-      {
-        LastState = STANDBY2;
-        currentState = STOPPED;
-      }
-      if (infpress)
-      {
-        isiangin = true;
-        stepinf = 0;
-      }
-
-      break;
-    case PRERUNNING:
-    stepinf = 2;
-      lampStatus = ON;
-      Heaterpin = runPID(suhuavg, csetpoint);
-      if (stoppress)
-      {
-        LastState = PRERUNNING;
-        currentState = STOPPED;
-      }
-      if (suhuavg >= csetpoint && suhuavg <200)
-      {
-        currentState = RUNNING;
-        dspSerial.print("btn.txt=\"start\"");
-        sendNextionEnd();
-      }
-      break;
-    case RUNNING:
-    stepinf = 2;
-      lampStatus = ON;
-      Heaterpin = runPID(suhuavg, csetpoint);
-      if (stoppress)
-      {
-        LastState = RUNNING;
-        currentState = STOPPED;
-        dspSerial.print("btn.txt=\"stop\"");
-        sendNextionEnd();
-      }
-      if (timesup)
-      {
-        LastState = RUNNING;
-        timesup = false;
-        currentState = FINISHED;
-      }
-      break;
-    case FINISHED:
-    stepinf = 10;
-      if (stoppress)
-      {
-        LastState = FINISHED;
-        currentState = STANDBY;
-        dspSerial.print("btn.txt=\"reset\"");
-        sendNextionEnd();
-      }
-      break;
-    case STOPPED:
-    stepinf = 10;
-      lampStatus = OFF;
-      Heaterpin = 0;
-      Heteroff();
-      if (startpress)
-      {
-        reset_pid();
-        if (LastState == RUNNING)
-        {
-          currentState = RUNNING;
-        }
-        if (LastState == PREHEATING)
-          currentState = PREHEATING;
-        if (LastState == PRERUNNING)
-          currentState = PRERUNNING;
-      }
-      if (resetpress)
-      {
-        LastState = STOPPED;
-        currentState = STANDBY;
-        dspSerial.print("btn.txt=\"reset\"");
-        sendNextionEnd();
-      }
-      break;
-    case EMERGENCY:
-    stepinf = 10;
-      lampStatus = OFF;
-      Heaterpin = 0;
-      Heteroff();
-      break;
-    }
-
-    buzzeron = false;
-    if (tcshort)
-      buzzeron = true;
-    if (suhuavg >= setSuhuAlarm && setSuhuAlarm > 0)
-      buzzeron = true;
-    if (emergency)
-      buzzeron = true;
-    if (buzzeron)
-      digitalWrite(BUZZER_PIN, HIGH);
-    else
-      digitalWrite(BUZZER_PIN, LOW);
-    updateLamp(lampStatus);
+  if (plusPressed) {
+    plusPressed = false;
+    Serial.println(">> PLUS event");
   }
-  if (currentpage == OPENING)
-  {
-    dspSerial.print("page opening");
-    sendNextionEnd();
-    delay(3000);
-    loadConfig();
-    sendconfigdisplay();
-    dspSerial.print("page main");
-    sendNextionEnd();
-    currentpage = MAIN;
-    Serial.println("==============siap");
-    updatehourmeter();
+  if (minusPressed) {
+    minusPressed = false;
+    Serial.println(">> MINUS event");
   }
-  delay(1);
+  if (startPressed) {
+    startPressed = false;
+    Serial.println(">> START event");
+  }
+  if (stopPressed) {
+    stopPressed = false;
+    Serial.println(">> STOP short press event");
+  }
+  if (stopResetPressed) {
+    stopResetPressed = false;
+    Serial.println(">> STOP long press (RESET) event");
+  }
+  if (emergencyPressed) {
+    emergencyPressed = false;
+    Serial.println(">> EMERGENCY event");
+  }
+  if (inflatorPressed) {
+    inflatorPressed = false;
+    Serial.println(">> INFLATOR event");
+  }
+  if (masukMenu) {
+    masukMenu  = false;
+    Serial.println(">> masukMenu event");
+  }
+
+
+
+
+
+
+  // if (digitalRead(EMER_PIN) == 0)
+  // {
+  //   digitalWrite(BIGRELAY_PIN, HIGH);
+  //   emergency = true;
+  //   currentState = EMERGENCY;
+  // }
+  // nextionReceiveHandler();
+
+  // if (currentpage == CONFIG || currentpage == ADVANCE)
+  // {
+  //   if (pidautotune)
+  //   {
+  //     if (!initauto)
+  //     {
+  //       initauto = true;
+  //       initAutoTune(maxthermo.getFilteredTemperature() + adjustmentSuhu, HEATER_PIN);
+  //     }
+  //     finishauto = autotune(maxthermo.getFilteredTemperature() + adjustmentSuhu);
+  //     if (finishauto)
+  //     {
+  //       Serial.println("Autotune selesai, kirim hasil ke Nextion");
+  //       pidautotune = false;
+  //       initauto = false;
+  //       finishauto = false;
+  //     }
+  //   }
+  //   else if (tccal)
+  //   {
+
+  //     if (digitalRead(START_PIN) == 0)
+  //     {
+  //       shortval = 0;
+  //       shortcjval = 0;
+  //       suhunormal = 0;
+  //       dspSerial.print("t8.txt=\"MULAI KALIBRASI ...\"");
+  //       sendNextionEnd();
+  //       int j1val = 0;
+  //       for (byte i = 0; i < 10; i++)
+  //       {
+  //         suhunormal += maxthermo.readRawTemperature();
+  //         delay(10);
+  //         digitalWrite(CEKTC_PIN, 1);
+  //         delay(10);
+  //         shortval += maxthermo.readshortTemperature();
+  //         delay(10);
+  //         digitalWrite(CEKTC_PIN, 0);
+  //         shortcjval += maxthermo.readshortCJ();
+  //         delay(500);
+  //         j1val += 9;
+  //         dspSerial.printf("j1.val=%d", j1val);
+  //         sendNextionEnd();
+  //       }
+  //       dspSerial.printf("j1.val=%d", 100);
+  //       sendNextionEnd();
+  //       dspSerial.print("t8.txt=\"--SELESAI--\"");
+  //       sendNextionEnd();
+  //       shortvalset = shortval / 10;
+  //       shortcjvalset = shortcjval / 10;
+  //       suhunormalset = suhunormal / 10;
+
+  //       EEPROM_writeAnything(ADDR_SHORT_VAL_SET, shortvalset);
+  //       EEPROM_writeAnything(ADDR_SUHU_NORMAL_SET, suhunormalset);
+  //       EEPROM_writeAnything(ADDR_SHORT_CJ_VAL_SET, shortcjvalset);
+  //       tccal = false;
+  //       delay(2000);
+  //       dspSerial.print("page main");
+  //       sendNextionEnd();
+  //       currentpage = MAIN;
+  //     }
+  //   }
+  //   else
+  //   {
+  //     Button btn = getButtonDebounced(50);
+  //     if (btn == BTN_MENU)
+  //     {
+  //       dspSerial.print("cursor.val++");
+  //       sendNextionEnd();
+  //       dspSerial.print("var.val=0");
+  //       sendNextionEnd();
+  //       dspSerial.print("cmd.val=1");
+  //       sendNextionEnd();
+  //       delay(400);
+  //     }
+  //     if (btn == BTN_MINUS)
+  //     {
+  //       if (buttonCounter < 10)
+  //       {
+  //         dspSerial.print("var.val=-1");
+  //         sendNextionEnd();
+  //         dspSerial.print("cmd.val=1");
+  //         sendNextionEnd();
+  //       }
+  //       else
+  //       {
+  //         dspSerial.print("var.val=-10");
+  //         sendNextionEnd();
+  //         dspSerial.print("cmd.val=1");
+  //         sendNextionEnd();
+  //       }
+  //       buttonCounter++;
+  //       delay(400);
+  //     }
+  //     if (btn == BTN_PLUS)
+  //     {
+  //       if (buttonCounter < 10)
+  //       {
+  //         dspSerial.print("var.val=1");
+  //         sendNextionEnd();
+  //         dspSerial.print("cmd.val=1");
+  //         sendNextionEnd();
+  //       }
+  //       else
+  //       {
+  //         dspSerial.print("var.val=10");
+  //         sendNextionEnd();
+  //         dspSerial.print("cmd.val=1");
+  //         sendNextionEnd();
+  //       }
+  //       buttonCounter++;
+  //       delay(400);
+  //     }
+  //     if (btn == BTN_OK)
+  //     {
+  //       dspSerial.print("cmd.val=2");
+  //       sendNextionEnd();
+  //       delay(400);
+  //     }
+  //   }
+  // }
+  // if (currentpage == MAIN)
+  // {
+
+  //   float voltage = readWithRetry([&]()
+  //                                 { return pzem.voltage(); });
+  //   arus = readWithRetry([&]()
+  //                        { return pzem.current(); });
+
+  //   // Serial.print("voltage ");
+  //   // Serial.print(voltage);
+  //   // Serial.print("   arus ");
+  //   // Serial.println(arus);
+
+  //   float suhuavg = maxthermo.readRawTemperature() + adjustmentSuhu;
+  //   // cekshorttc(suhuavg);
+  //   if (suhuavg > 300 || suhuavg < 0 || isnan(suhuavg))
+  //     tcopen = 1;
+  //   else if (suhuavg < 300 && suhuavg > 0)
+  //     tcopen = 0;
+
+  //   isiairbag();
+  //   updatedisplay(suhuavg); // <- update tampilan via Serial
+  //                           // temperature =sensor.getFilteredTemperature();
+
+  //   bool startpress = false, stoppress = false, resetpress = false, infpress = false;
+
+  //   if (digitalRead(START_PIN) == 1 && digitalRead(STOP_PIN) == 1 && digitalRead(RESET_PIN) == 1)
+  //     pbmilis = millis();
+  //   else
+  //   {
+  //     if (millis() - pbmilis > 50)
+  //     {
+  //       if (digitalRead(START_PIN) == 0)
+  //         startpress = true;
+  //       if (digitalRead(STOP_PIN) == 0)
+  //         stoppress = true;
+  //       if (digitalRead(RESET_PIN) == 0)
+  //         infpress = true;
+  //     }
+  //     if (millis() - pbmilis > 2000)
+  //       if (digitalRead(STOP_PIN) == 0)
+  //         resetpress = true;
+  //   }
+
+  //   switch (currentState)
+  //   {
+  //   case STANDBY:
+  //     stepinf = 10;
+  //     Heteroff();
+  //     Heaterpin = 0;
+  //     lampStatus = OFF;
+  //     // if (getButtonDebounced(3000) == BTN_MENU)
+  //     // {
+  //     //   dspSerial.print("page config");
+  //     //   sendNextionEnd();
+  //     //   currentpage = CONFIG;
+  //     // }
+  //     else if (startpress)
+  //     {
+  //       LastState = STANDBY;
+  //       currentState = PREHEATING;
+  //       setupPID(HEATER_PIN, cKp / 5, cKi / 5, cKd, cmulaipid);
+  //     }
+  //     if (resetpress)
+  //     {
+  //       dspSerial.print("btn.txt=\"reset\"");
+  //       sendNextionEnd();
+  //     }
+  //     break;
+
+  //   case PREHEATING:
+  //     stepinf = 10;
+  //     Heaterpin = runPID(suhuavg, suhupreheat);
+  //     lampStatus = ON;
+  //     if (stoppress)
+  //     {
+  //       LastState = PREHEATING;
+  //       currentState = STOPPED;
+  //     }
+  //     if (suhuavg >= suhupreheat && tcopen==0)
+  //       currentState = STANDBY2;
+  //     break;
+  //   case STANDBY2:
+  //     Heaterpin = runPID(suhuavg, suhupreheat);
+  //     lampStatus = OFF;
+  //     if (startpress)
+  //     {
+  //       LastState = STANDBY2;
+  //       currentState = PRERUNNING;
+  //       setupPID(HEATER_PIN, cKp, cKi, cKd, cmulaipid);
+  //       reset_pid();
+  //     }
+  //     if (stoppress)
+  //     {
+  //       LastState = STANDBY2;
+  //       currentState = STOPPED;
+  //     }
+  //     if (infpress)
+  //     {
+  //       isiangin = true;
+  //       stepinf = 0;
+  //     }
+
+  //     break;
+  //   case PRERUNNING:
+  //     stepinf = 2;
+  //     lampStatus = ON;
+  //     Heaterpin = runPID(suhuavg, csetpoint);
+  //     if (stoppress)
+  //     {
+  //       LastState = PRERUNNING;
+  //       currentState = STOPPED;
+  //     }
+  //     if (suhuavg >= csetpoint && suhuavg < 200 && tcopen==0)
+  //     {
+  //       currentState = RUNNING;
+  //       dspSerial.print("btn.txt=\"start\"");
+  //       sendNextionEnd();
+  //     }
+  //     break;
+  //   case RUNNING:
+  //     stepinf = 2;
+  //     lampStatus = ON;
+  //     Heaterpin = runPID(suhuavg, csetpoint);
+  //     if (stoppress)
+  //     {
+  //       LastState = RUNNING;
+  //       currentState = STOPPED;
+  //       dspSerial.print("btn.txt=\"stop\"");
+  //       sendNextionEnd();
+  //     }
+  //     if (timesup)
+  //     {
+  //       LastState = RUNNING;
+  //       timesup = false;
+  //       currentState = FINISHED;
+  //     }
+  //     break;
+  //   case FINISHED:
+  //     stepinf = 10;
+  //     if (stoppress)
+  //     {
+  //       LastState = FINISHED;
+  //       currentState = STANDBY;
+  //       dspSerial.print("btn.txt=\"reset\"");
+  //       sendNextionEnd();
+  //     }
+  //     break;
+  //   case STOPPED:
+  //     stepinf = 10;
+  //     lampStatus = OFF;
+  //     Heaterpin = 0;
+  //     Heteroff();
+  //     if (startpress)
+  //     {
+  //       reset_pid();
+  //       if (LastState == RUNNING)
+  //       {
+  //         currentState = RUNNING;
+  //       }
+  //       if (LastState == PREHEATING)
+  //         currentState = PREHEATING;
+  //       if (LastState == PRERUNNING)
+  //         currentState = PRERUNNING;
+  //     }
+  //     if (resetpress)
+  //     {
+  //       LastState = STOPPED;
+  //       currentState = STANDBY;
+  //       dspSerial.print("btn.txt=\"reset\"");
+  //       sendNextionEnd();
+  //     }
+  //     break;
+  //   case EMERGENCY:
+  //     stepinf = 10;
+  //     lampStatus = OFF;
+  //     Heaterpin = 0;
+  //     Heteroff();
+  //     break;
+  //   }
+
+  //   buzzeron = false;
+  //   if (tcshort)
+  //     buzzeron = true;
+  //   if (suhuavg >= setSuhuAlarm && setSuhuAlarm > 0)
+  //     buzzeron = true;
+  //   if (emergency)
+  //     buzzeron = true;
+  //   if (buzzeron)
+  //     digitalWrite(BUZZER_PIN, HIGH);
+  //   else
+  //     digitalWrite(BUZZER_PIN, LOW);
+  //   updateLamp(lampStatus);
+  // }
+  // if (currentpage == OPENING)
+  // {
+  //   dspSerial.print("page opening");
+  //   sendNextionEnd();
+  //   delay(3000);
+  //   loadConfig();
+  //   sendconfigdisplay();
+  //   dspSerial.print("page main");
+  //   sendNextionEnd();
+  //  // currentpage = MAIN;
+  //   Serial.println("==============siap");
+  //   updatehourmeter();
+  // }
+  // delay(1);
 }
 
 void savetimer()
@@ -464,70 +656,67 @@ void sendconfigdisplay()
 }
 void updatedisplay(float temperature)
 {
-  unsigned long now = millis();
+
   float suhudsp;
 
-  if (now - lastDisplayUpdate >= 500)
+  // Serial.println("==============update");
+  //  temperature += 0.5;
+  lastDisplayUpdate = now;
+
+  if (currentState == RUNNING || currentState == PREHEATING)
   {
-    // Serial.println("==============update");
-    //  temperature += 0.5;
-    lastDisplayUpdate = now;
+    if (temperature >= setpoint)
+      reachedSetpoint = true;
+    else if (fabs(temperature - setpoint) >= 2.0)
+      reachedSetpoint = false;
 
-    if (currentState == RUNNING || currentState == PREHEATING)
-    {
-      if (temperature >= setpoint)
-        reachedSetpoint = true;
-      else if (fabs(temperature - setpoint) >= 2.0)
-        reachedSetpoint = false;
-
-      if (reachedSetpoint)
-        suhudsp = setpoint;
-      else
-        suhudsp = temperature;
-    }
+    if (reachedSetpoint)
+      suhudsp = setpoint;
     else
-    {
       suhudsp = temperature;
-    }
-
-    if (tcshort)
-    {
-      dspSerial.printf("tsuhu.txt=\"%s\"", "SRT");
-      suhudsp = 500;
-    }
-    else if (temperature == 888)
-      dspSerial.printf("tsuhu.txt=\"%s\"", "OPN");
-    else if (suhudsp >= 100.0)
-      dspSerial.printf("tsuhu.txt=\"%d\"", (int)suhudsp);
-    else
-      dspSerial.printf("tsuhu.txt=\"%.1f\"", suhudsp);
-    sendNextionEnd();
-    unsigned int warna;
-    if (suhudsp < setpoint)
-      warna = 65535;
-    if (suhudsp >= setpoint)
-      warna = 34784;
-    if (suhudsp >= setpoint + 3 && currentState != STANDBY2)
-      warna = 55782;
-    dspSerial.printf("tsuhu.pco=%d", warna);
-    sendNextionEnd();
-
-    // arus = random(50, 60);
-    // arus /= 10.0;
-    int arusint = arus * 10;
-    dspSerial.printf("xarus.val=%d", arusint);
-    sendNextionEnd();
-
-    //  pressure = random(30, 33);
-    dspSerial.printf("tpress.txt=\"%.0f\"", pressure);
-    sendNextionEnd();
-
-    dspSerial.printf("t0.txt=\"%s\"", getStatusText());
-    sendNextionEnd();
-
-    dspSerial.printf("p0.pic=%d", Heaterpin ? 3 : 2);
-    sendNextionEnd();
   }
+  else
+  {
+    suhudsp = temperature;
+  }
+
+  if (tcshort)
+  {
+    dspSerial.printf("tsuhu.txt=\"%s\"", "SRT");
+    suhudsp = 500;
+  }
+  else if (tcopen)
+    dspSerial.printf("tsuhu.txt=\"%s\"", "OPN");
+  else if (suhudsp >= 100.0)
+    dspSerial.printf("tsuhu.txt=\"%d\"", (int)suhudsp);
+  else
+    dspSerial.printf("tsuhu.txt=\"%.1f\"", suhudsp);
+  sendNextionEnd();
+  unsigned int warna;
+  if (suhudsp < setpoint)
+    warna = 65535;
+  if (suhudsp >= setpoint)
+    warna = 34784;
+  if (suhudsp >= setpoint + 3 && currentState != STANDBY2)
+    warna = 55782;
+  dspSerial.printf("tsuhu.pco=%d", warna);
+  sendNextionEnd();
+
+  // arus = random(50, 60);
+  // arus /= 10.0;
+  int arusint = arus * 10;
+  dspSerial.printf("xarus.val=%d", arusint);
+  sendNextionEnd();
+
+  //  pressure = random(30, 33);
+  dspSerial.printf("tpress.txt=\"%.0f\"", pressure);
+  sendNextionEnd();
+
+  dspSerial.printf("t0.txt=\"%s\"", getStatusText());
+  sendNextionEnd();
+
+  dspSerial.printf("p0.pic=%d", Heaterpin ? 3 : 2);
+  sendNextionEnd();
 }
 void sendNextionEnd()
 {
@@ -745,7 +934,7 @@ void isiairbag()
   {
     digitalWrite(RIL_PIN, LOW);
     digitalWrite(INF_PIN, LOW);
-    pressure= readpressure();
+    pressure = readpressure();
   }
 }
 
@@ -792,55 +981,55 @@ const char *getStatusText()
   }
 }
 
-Button readButton()
-{
-  long sum = 0;
-  for (int i = 0; i < 30; i++)
-  {
-    sum += analogRead(1);
-    delayMicroseconds(200);
-  }
-  int adcValue = sum / 30;
-  // Serial.println(adcValue);
-  if (adcValue >= 41 && adcValue <= 50)
-    return BTN_MINUS; // ~63
-  if (adcValue >= 31 && adcValue <= 40)
-    return BTN_PLUS; // ~19-22
-  if (adcValue >= 21 && adcValue <= 30)
-    return BTN_OK; // ~5-10
-  if (adcValue >= 13 && adcValue <= 18)
-    return BTN_MENU; // ~1-5
-  if (adcValue >= 51 && adcValue <= 63)
-    return BTN_NONE; // no push ~17
-  if (digitalRead(START_PIN == 0))
-    return BTN_START;
-  if (digitalRead(STOP_PIN == 1))
-    return BTN_STOP;
-  return BTN_NONE; // default
-}
+//Button readButton()
+//{
+  // long sum = 0;
+  // for (int i = 0; i < 30; i++)
+  // {
+  //   sum += analogRead(1);
+  //   delayMicroseconds(200);
+  // }
+  // int adcValue = sum / 30;
+  // // Serial.println(adcValue);
+  // if (adcValue >= 41 && adcValue <= 50)
+  //   return BTN_MINUS; // ~63
+  // if (adcValue >= 31 && adcValue <= 40)
+  //   return BTN_PLUS; // ~19-22
+  // if (adcValue >= 21 && adcValue <= 30)
+  //   return BTN_OK; // ~5-10
+  // if (adcValue >= 13 && adcValue <= 18)
+  //   return BTN_MENU; // ~1-5
+  // if (adcValue >= 51 && adcValue <= 63)
+  //   return BTN_NONE; // no push ~17
+  // if (digitalRead(START_PIN == 0))
+  //   return BTN_START;
+  // if (digitalRead(STOP_PIN == 1))
+  //   return BTN_STOP;
+  // return BTN_NONE; // default
+//}
 
-Button getButtonDebounced(unsigned long t)
-{
-  Button currentButton = readButton();
-  unsigned long now = millis();
-  if (currentButton == BTN_NONE)
-  {
-    buttonCounter = 0;
-    stableButton = currentButton;
-  }
-  if (currentButton != lastButton)
-  {
-    lastChangeTime = now;
-    lastButton = currentButton;
-  }
+//Button getButtonDebounced(unsigned long t)
+//{
+  // Button currentButton = readButton();
+  // unsigned long now = millis();
+  // if (currentButton == BTN_NONE)
+  // {
+  //   buttonCounter = 0;
+  //   stableButton = currentButton;
+  // }
+  // if (currentButton != lastButton)
+  // {
+  //   lastChangeTime = now;
+  //   lastButton = currentButton;
+  // }
 
-  if ((now - lastChangeTime) > t)
-  {
-    stableButton = currentButton;
-  }
+  // if ((now - lastChangeTime) > t)
+  // {
+  //   stableButton = currentButton;
+  // }
 
-  return stableButton;
-}
+  // return stableButton;
+//}
 
 void saveConfig()
 {

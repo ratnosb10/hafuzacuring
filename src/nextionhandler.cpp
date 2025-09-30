@@ -27,20 +27,24 @@ void nextionReceiveHandler()
     cmd = getValue(incomingString, ' ', 1);
     if (cmd == "tomain")
     {
+            dspSerial.print("page main");
+      sendNextionEnd();
       sendconfigdisplay();
       currentpage = MAIN;
-      dspSerial.print("page main");
-      sendNextionEnd();
+
     }
     if (cmd == "toadvance")
     {
-      sendconfigdisplay();
-      currentpage = ADVANCE;
       dspSerial.print("page advance");
       sendNextionEnd();
+      sendconfigdisplay();
+      currentpage = ADVANCE;
+
     }
     if (cmd == "save")
     {
+            dspSerial.print("page main");
+      sendNextionEnd();
       csetpoint = getValue(incomingString, ' ', 2).toDouble();
       suhupreheat = getValue(incomingString, ' ', 3).toDouble();
       setpressure = getValue(incomingString, ' ', 4).toDouble();
@@ -50,14 +54,15 @@ void nextionReceiveHandler()
       unsigned long menit = getValue(incomingString, ' ', 6).toInt();
       csetTimer = (jam * 3600UL) + (menit * 60UL);
       saveConfig();
-      dspSerial.print("page main");
-      sendNextionEnd();
+
       loadConfig();
       sendconfigdisplay();
       currentpage = MAIN;
     }
     if (cmd == "saveadvan")
     {
+            dspSerial.print("page main");
+      sendNextionEnd();
       adjustmentSuhu = getValue(incomingString, ' ', 2).toDouble();
       adjpress = getValue(incomingString, ' ', 3).toDouble();
       cKp = getValue(incomingString, ' ', 4).toDouble() / 10;
@@ -74,8 +79,7 @@ void nextionReceiveHandler()
   Serial.println(cKd);
 Serial.println(cmulaipid); */
 
-      dspSerial.print("page main");
-      sendNextionEnd();
+
       currentpage = MAIN;
     }
     if (cmd == "timerrun")

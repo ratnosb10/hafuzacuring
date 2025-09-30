@@ -48,7 +48,7 @@ bool tccal = false;
 float shortval, shortvalset, shortcjval, shortcjvalset, suhunormal, suhunormalset;
 unsigned long milisshort,timecek;
 bool tcshort = false;
-
+bool tcopen = false;
 bool pidautotune = false;
 bool initauto = false;
 bool finishauto = false;
@@ -84,19 +84,19 @@ const int BIGRELAY_PIN = 39;
 const int INF_PIN = 4;
 const int RIL_PIN = 5;
 const int RESET_PIN = 18;
-enum Button
-{
-  BTN_NONE,
-  BTN_MINUS,
-  BTN_PLUS,
-  BTN_OK,
-  BTN_MENU,
-  BTN_START,
-  BTN_STOP,
-  BTN
-};
-Button lastButton = BTN_NONE;
-Button stableButton = BTN_NONE;
+// enum Button
+// {
+//   BTN_NONE,
+//   BTN_MINUS,
+//   BTN_PLUS,
+//   BTN_OK,
+//   BTN_MENU,
+//   BTN_START,
+//   BTN_STOP,
+//   BTN
+// };
+// Button lastButton = BTN_NONE;
+// Button stableButton = BTN_NONE;
 unsigned long lastChangeTime = 0;
 int buttonCounter;
 // === Status Sistem ===
@@ -132,8 +132,8 @@ void updatedisplay(float temperature);
 const char *getStatusText();
 void saveConfig() ;
 void loadConfig() ;
-Button readButton();
-Button getButtonDebounced(unsigned long t);
+//Button readButton();
+//Button getButtonDebounced(unsigned long t);
 void sendconfigdisplay();
 void savetimer();
 float readWithRetry(std::function<float()> reader) ;
